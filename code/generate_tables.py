@@ -38,7 +38,11 @@ def table_main_results(df: pd.DataFrame, tables_dir: str) -> None:
     Aggregated over seeds.
     """
     rows = []
-    for (ds, bb, hd), grp in df[df["study"].isna() | (df["study"] == "main")].groupby(["dataset", "backbone", "head"]):
+    if "study" in df.columns:
+        main_df = df[df["study"].isna() | (df["study"] == "main")]
+    else:
+        main_df = df
+    for (ds, bb, hd), grp in main_df.groupby(["dataset", "backbone", "head"]):
         rows.append({
             "Dataset": ds.replace("_", " "),
             "Backbone": bb,

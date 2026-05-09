@@ -110,14 +110,17 @@ training:
 # =============================================================
 
 # --- Ablation: circuit depth and n_qubits ---
+# Full sweep over both datasets and the strongest backbone, with 5 seeds.
+# 2 datasets × 1 backbone × 2 heads × 4 qubits × 4 depths × 5 seeds = 320 runs
+# minus the default (q=4, d=2) overlap with main = 280 ablation runs.
 ablation:
   enabled: true
-  datasets: ["split_cifar10"]
+  datasets: ["split_mnist", "split_cifar10"]
   backbones: ["resnet18"]
   heads: ["qk_ideal", "qk_noisy"]
   qubits: [2, 4, 6, 8]
   depths: [1, 2, 3, 4]
-  seeds: [42, 123]
+  seeds: [0, 42, 123, 456, 789]
 
 # --- EWC Lambda Sensitivity ---
 lambda_sensitivity:

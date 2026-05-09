@@ -53,6 +53,7 @@ COMMAND_FILES = {
     "2": (_cmd_path("cmds_2_ideal.txt"),     "Phase 2: Quantum Ideal (QK-Ideal)"),
     "3": (_cmd_path("cmds_3_noisy.txt"),     "Phase 3: Quantum Noisy (QK-Noisy)"),
     "4": (_cmd_path("cmds_4_studies.txt"),   "Phase 4: Studies (Ablation, Lambda, Scalability, Noise)"),
+    "A": (_cmd_path("cmds_ablation.txt"),    "Ablation Only (qubits × depth × 5 seeds)"),
 }
 
 # 2 datasets × 3 backbones × 3 heads × 5 seeds = 90 main
@@ -238,6 +239,10 @@ def refresh_commands():
         (f'"{PYTHON}" "{RUNNER}" --config "{CONFIG}" --study noise_decomposition '
          f'--dry-run --export-commands >> "{cmds_dir}/cmds_4_studies.txt"',
          "Phase 4: Noise Decomp"),
+        # Standalone ablation file (for [A] button)
+        (f'"{PYTHON}" "{RUNNER}" --config "{CONFIG}" --study ablation '
+         f'--dry-run --export-commands > "{cmds_dir}/cmds_ablation.txt"',
+         "Ablation only (standalone)"),
     ]
     for cmd, label in cmds:
         print(f"  {label}...", end=" ", flush=True)
@@ -669,6 +674,53 @@ def generate_tables_action():
     input("\nEnter to return...")
 
 
+def generate_summary_action():
+    """Generate paper-ready summary: aggregated tables + figures."""
+    print("\n[SUMMARY] Generating aggregated tables and figures...")
+    paper_dir  = os.path.abspath(os.path.join(CODE_DIR, "..", "paper"))
+    gen_script = os.path.join(CODE_DIR, "generate_summary.py")
+    run_command(
+        f'"{PYTHON}" "{gen_script}" '
+        f'--results-dir "{RESULTS_DIR}" '
+        f'--paper-dir "{paper_dir}"'
+    )
+    print(f"\n  Tables → {paper_dir}/tables/")
+    print(f"  Figures → {paper_dir}/figures/")
+    input("\nEnter to return...")
+
+
+def submit_ablation_only(overwrite: bool = False):
+    """Submit only the ablation study (full sweep with 5 seeds)."""
+    if not sbatch_available():
+        print("\n[ERROR] sbatch not found. manager.py must run on Hercules.")
+        input("\nEnter to return...")
+        return
+    file_path = COMMAND_FILES["A"][0]
+    n_tasks = get_slurm_tasks(file_path)
+    if n_tasks == 0:
+        print("\n[WARN] cmds_ablation.txt is empty. Run [R] first.")
+        input("\nEnter to return...")
+        return
+
+    job_name = "QTCL_ablation"
+    export_val = f"CMD_FILE={file_path},CODE_DIR={CODE_DIR}"
+    if overwrite:
+        export_val += ",EXTRA_ARGS=--overwrite"
+
+    slurm_script = os.path.join(CODE_DIR, "slurm_generic.sh")
+    cmd = (
+        f"sbatch --parsable --job-name='{job_name}' "
+        f"--partition={SLURM_PARTITION} "
+        f"--array=1-{n_tasks}%20 "
+        f"--export={export_val} \"{slurm_script}\""
+    )
+    print(f"\n[SUBMIT] Ablation only ({n_tasks} tasks)...")
+    job_id = run_command(cmd, capture=True)
+    if job_id:
+        print(f"[SUCCESS] Job ID: {job_id}")
+    input("\nEnter to return...")
+
+
 def show_summary():
     """Print a quick text summary of current results without entering monitor."""
     total, head_counts, df = scan_progress()
@@ -710,11 +762,13 @@ def main():
         print(f"  [3] Submit Phase 3: Quantum Noisy      (QK-Noisy){slurm_tag}")
         print(f"  [4] Submit Phase 4: Studies            (Ablation / Lambda / Scalability / Noise){slurm_tag}")
         print(f"  [F] Submit FULL PIPELINE (1 → 2 → 3 → 4 with SLURM deps){slurm_tag}")
+        print(f"  [A] Submit ABLATION ONLY (qubits × depth × 5 seeds){slurm_tag}")
         print("  ─────────────────────────────────────────")
         print("  [M] Monitor live progress (refresh every 2s)")
         print("  [C] Check completed / pending runs")
         print("  [S] Quick summary")
-        print("  [T] Generate LaTeX tables from results")
+        print("  [T] Generate LaTeX tables (basic)")
+        print("  [U] Generate paper SUMMARY (full tables + figures)")
         print("  ─────────────────────────────────────────")
         print("  [X] Exit")
         print("-" * 70)
@@ -755,6 +809,14 @@ def main():
 
         elif choice == "T":
             generate_tables_action()
+
+        elif choice == "U":
+            generate_summary_action()
+
+        elif choice == "A":
+            mode = check_completed(phase_key="A")
+            if mode is not None:
+                submit_ablation_only(overwrite=(mode == "overwrite_all"))
 
         elif choice == "X":
             print("\nExiting. Good luck with the submission!\n")
