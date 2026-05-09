@@ -66,6 +66,7 @@ COMMAND_FILES = {
 # noise decomp: 1 dataset × 1 backbone × 3 channels × 1 seed = 3
 EXPECTED_RUNS  = 186
 SLURM_PARTITION = "standard"   # Hercules CICA: standard (CPU) or gpu
+CHUNK_SIZE     = 20            # Max concurrent array tasks per chunk (Hercules cap)
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -346,6 +347,59 @@ def check_completed(phase_key: Optional[str] = None, view_only: bool = False) ->
         print("  Enter 1, 2, or C.")
 
 
+def submit_chunked(
+    file_path: str,
+    job_prefix: str,
+    overwrite: bool = False,
+    initial_dependency: Optional[str] = None,
+) -> Optional[str]:
+    """
+    Submit a command file as chained array chunks of CHUNK_SIZE.
+    Each chunk waits for the previous via --dependency=afterany.
+    Returns the last chunk's job_id (for downstream phase dependencies).
+    """
+    n_tasks = get_slurm_tasks(file_path)
+    if n_tasks == 0:
+        print(f"\n[WARN] No tasks in {file_path}. Run [R] first.")
+        return None
+
+    export_val = f"CMD_FILE={file_path},CODE_DIR={CODE_DIR}"
+    if overwrite:
+        export_val += ",EXTRA_ARGS=--overwrite"
+    slurm_script = os.path.join(CODE_DIR, "slurm_generic.sh")
+
+    prev_id = initial_dependency
+    last_id: Optional[str] = None
+    chunk_idx = 0
+    n_chunks = (n_tasks + CHUNK_SIZE - 1) // CHUNK_SIZE
+
+    print(f"\n[SUBMIT] {job_prefix}: {n_tasks} tasks → {n_chunks} chunk(s) of {CHUNK_SIZE}")
+    for start in range(1, n_tasks + 1, CHUNK_SIZE):
+        chunk_idx += 1
+        end = min(start + CHUNK_SIZE - 1, n_tasks)
+        array_spec = f"{start}-{end}"
+        dep_arg = f"--dependency=afterany:{prev_id}" if prev_id else ""
+        job_name = f"{job_prefix}_c{chunk_idx}of{n_chunks}"
+        cmd = (
+            f"sbatch --parsable --job-name='{job_name}' "
+            f"--partition={SLURM_PARTITION} "
+            f"--array={array_spec} {dep_arg} "
+            f"--export={export_val} \"{slurm_script}\""
+        )
+        print(f"  [chunk {chunk_idx}/{n_chunks}] tasks {start}-{end}"
+              + (f" (after {prev_id})" if prev_id else ""))
+        job_id = run_command(cmd, capture=True)
+        if not job_id:
+            print(f"  [ERROR] sbatch failed for chunk {chunk_idx}; aborting.")
+            return last_id
+        print(f"    job_id={job_id}")
+        prev_id = job_id
+        last_id = job_id
+
+    print(f"[SUCCESS] All {n_chunks} chunk(s) submitted. Last id: {last_id}")
+    return last_id
+
+
 def submit_phase(key: str, dependency_id: Optional[str] = None, overwrite: bool = False) -> Optional[str]:
     if key not in COMMAND_FILES:
         return None
@@ -356,31 +410,8 @@ def submit_phase(key: str, dependency_id: Optional[str] = None, overwrite: bool 
         return None
 
     file_path, name = COMMAND_FILES[key]
-    n_tasks = get_slurm_tasks(file_path)
-    if n_tasks == 0:
-        print(f"\n[WARN] No tasks in {file_path}. Run [R] first.")
-        return None
-
-    dep_arg  = f"--dependency=afterok:{dependency_id}" if dependency_id else ""
-    job_name = f"QTCL_{key}"
-
-    # CODE_DIR lets slurm_generic.sh cd to the right place regardless of SLURM cwd
-    export_val = f"CMD_FILE={file_path},CODE_DIR={CODE_DIR}"
-    if overwrite:
-        export_val += ",EXTRA_ARGS=--overwrite"
-
-    slurm_script = os.path.join(CODE_DIR, "slurm_generic.sh")
-    cmd = (
-        f"sbatch --parsable --job-name='{job_name}' "
-        f"--partition={SLURM_PARTITION} "
-        f"--array=1-{n_tasks}%20 {dep_arg} "
-        f"--export={export_val} \"{slurm_script}\""
-    )
-    print(f"\n[SUBMIT] {name} ({n_tasks} tasks)...")
-    job_id = run_command(cmd, capture=True)
-    if job_id:
-        print(f"[SUCCESS] Job ID: {job_id}")
-    return job_id
+    return submit_chunked(file_path, f"QTCL_{key}", overwrite=overwrite,
+                          initial_dependency=dependency_id)
 
 
 def launch_full_pipeline(overwrite: bool = False):
@@ -724,68 +755,26 @@ def generate_summary_action():
 
 
 def submit_named(key: str, overwrite: bool = False) -> None:
-    """Generic submit using COMMAND_FILES[key]."""
+    """Generic submit using COMMAND_FILES[key] (chunked)."""
     if not sbatch_available():
         print("\n[ERROR] sbatch not found. Run on Hercules.")
         input("\nEnter to return...")
         return
     if key not in COMMAND_FILES:
         return
-    file_path, name = COMMAND_FILES[key]
-    n_tasks = get_slurm_tasks(file_path)
-    if n_tasks == 0:
-        print(f"\n[WARN] {os.path.basename(file_path)} is empty. Run [R] first.")
-        input("\nEnter to return...")
-        return
-
-    job_name = f"QTCL_{key}"
-    export_val = f"CMD_FILE={file_path},CODE_DIR={CODE_DIR}"
-    if overwrite:
-        export_val += ",EXTRA_ARGS=--overwrite"
-
-    slurm_script = os.path.join(CODE_DIR, "slurm_generic.sh")
-    cmd = (
-        f"sbatch --parsable --job-name='{job_name}' "
-        f"--partition={SLURM_PARTITION} "
-        f"--array=1-{n_tasks}%20 "
-        f"--export={export_val} \"{slurm_script}\""
-    )
-    print(f"\n[SUBMIT] {name} ({n_tasks} tasks)...")
-    job_id = run_command(cmd, capture=True)
-    if job_id:
-        print(f"[SUCCESS] Job ID: {job_id}")
+    file_path, _ = COMMAND_FILES[key]
+    submit_chunked(file_path, f"QTCL_{key}", overwrite=overwrite)
     input("\nEnter to return...")
 
 
 def submit_ablation_only(overwrite: bool = False):
-    """Submit only the ablation study (full sweep with 5 seeds)."""
+    """Submit only the ablation study (full sweep with 5 seeds), chunked."""
     if not sbatch_available():
         print("\n[ERROR] sbatch not found. manager.py must run on Hercules.")
         input("\nEnter to return...")
         return
     file_path = COMMAND_FILES["A"][0]
-    n_tasks = get_slurm_tasks(file_path)
-    if n_tasks == 0:
-        print("\n[WARN] cmds_ablation.txt is empty. Run [R] first.")
-        input("\nEnter to return...")
-        return
-
-    job_name = "QTCL_ablation"
-    export_val = f"CMD_FILE={file_path},CODE_DIR={CODE_DIR}"
-    if overwrite:
-        export_val += ",EXTRA_ARGS=--overwrite"
-
-    slurm_script = os.path.join(CODE_DIR, "slurm_generic.sh")
-    cmd = (
-        f"sbatch --parsable --job-name='{job_name}' "
-        f"--partition={SLURM_PARTITION} "
-        f"--array=1-{n_tasks}%20 "
-        f"--export={export_val} \"{slurm_script}\""
-    )
-    print(f"\n[SUBMIT] Ablation only ({n_tasks} tasks)...")
-    job_id = run_command(cmd, capture=True)
-    if job_id:
-        print(f"[SUCCESS] Job ID: {job_id}")
+    submit_chunked(file_path, "QTCL_ablation", overwrite=overwrite)
     input("\nEnter to return...")
 
 
