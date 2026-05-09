@@ -20,7 +20,12 @@ import time
 from pathlib import Path
 
 # Always run from the directory where manager.py lives (code/)
-os.chdir(os.path.dirname(os.path.abspath(__file__)))
+CODE_DIR = os.path.dirname(os.path.abspath(__file__))
+os.chdir(CODE_DIR)
+
+PYTHON  = sys.executable                          # full path to current python interpreter
+RUNNER  = os.path.join(CODE_DIR, "runner.py")     # absolute path to runner.py
+CONFIG  = os.path.join(CODE_DIR, "config.yaml")   # absolute path to config
 from typing import Dict, List, Optional, Set, Tuple
 
 try:
@@ -38,14 +43,16 @@ except ImportError:
 
 # ── Constants ─────────────────────────────────────────────────────────────────
 
-CONFIG      = "config.yaml"
-RESULTS_DIR = "./results"
+RESULTS_DIR = os.path.join(CODE_DIR, "results")
+
+def _cmd_path(name: str) -> str:
+    return os.path.join(CODE_DIR, name)
 
 COMMAND_FILES = {
-    "1": ("cmds_1_classical.txt", "Phase 1: Classical Baseline (MLP)"),
-    "2": ("cmds_2_ideal.txt",     "Phase 2: Quantum Ideal (QK-Ideal)"),
-    "3": ("cmds_3_noisy.txt",     "Phase 3: Quantum Noisy (QK-Noisy)"),
-    "4": ("cmds_4_studies.txt",   "Phase 4: Studies (Ablation, Lambda, Scalability, Noise)"),
+    "1": (_cmd_path("cmds_1_classical.txt"), "Phase 1: Classical Baseline (MLP)"),
+    "2": (_cmd_path("cmds_2_ideal.txt"),     "Phase 2: Quantum Ideal (QK-Ideal)"),
+    "3": (_cmd_path("cmds_3_noisy.txt"),     "Phase 3: Quantum Noisy (QK-Noisy)"),
+    "4": (_cmd_path("cmds_4_studies.txt"),   "Phase 4: Studies (Ablation, Lambda, Scalability, Noise)"),
 }
 
 # 2 datasets × 3 backbones × 3 heads × 5 seeds = 90 main
@@ -203,31 +210,32 @@ def delete_run_results(run_ids: List[str]) -> None:
 def refresh_commands():
     """Regenerate .txt command files from config.yaml."""
     print("\n[INFO] Refreshing command lists from config.yaml...\n")
+    cmds_dir = CODE_DIR
     cmds = [
         # Phase 1
-        (f"python runner.py --config {CONFIG} --head mlp "
-         f"--dry-run --export-commands > cmds_1_classical.txt",
+        (f'"{PYTHON}" "{RUNNER}" --config "{CONFIG}" --head mlp '
+         f'--dry-run --export-commands > "{cmds_dir}/cmds_1_classical.txt"',
          "Phase 1: Classical"),
         # Phase 2
-        (f"python runner.py --config {CONFIG} --head qk_ideal "
-         f"--dry-run --export-commands > cmds_2_ideal.txt",
+        (f'"{PYTHON}" "{RUNNER}" --config "{CONFIG}" --head qk_ideal '
+         f'--dry-run --export-commands > "{cmds_dir}/cmds_2_ideal.txt"',
          "Phase 2: QK-Ideal"),
         # Phase 3
-        (f"python runner.py --config {CONFIG} --head qk_noisy "
-         f"--dry-run --export-commands > cmds_3_noisy.txt",
+        (f'"{PYTHON}" "{RUNNER}" --config "{CONFIG}" --head qk_noisy '
+         f'--dry-run --export-commands > "{cmds_dir}/cmds_3_noisy.txt"',
          "Phase 3: QK-Noisy"),
         # Phase 4: studies
-        (f"python runner.py --config {CONFIG} --study ablation "
-         f"--dry-run --export-commands > cmds_4_studies.txt",
+        (f'"{PYTHON}" "{RUNNER}" --config "{CONFIG}" --study ablation '
+         f'--dry-run --export-commands > "{cmds_dir}/cmds_4_studies.txt"',
          "Phase 4: Ablation"),
-        (f"python runner.py --config {CONFIG} --study lambda_sensitivity "
-         f"--dry-run --export-commands >> cmds_4_studies.txt",
+        (f'"{PYTHON}" "{RUNNER}" --config "{CONFIG}" --study lambda_sensitivity '
+         f'--dry-run --export-commands >> "{cmds_dir}/cmds_4_studies.txt"',
          "Phase 4: Lambda"),
-        (f"python runner.py --config {CONFIG} --study scalability "
-         f"--dry-run --export-commands >> cmds_4_studies.txt",
+        (f'"{PYTHON}" "{RUNNER}" --config "{CONFIG}" --study scalability '
+         f'--dry-run --export-commands >> "{cmds_dir}/cmds_4_studies.txt"',
          "Phase 4: Scalability"),
-        (f"python runner.py --config {CONFIG} --study noise_decomposition "
-         f"--dry-run --export-commands >> cmds_4_studies.txt",
+        (f'"{PYTHON}" "{RUNNER}" --config "{CONFIG}" --study noise_decomposition '
+         f'--dry-run --export-commands >> "{cmds_dir}/cmds_4_studies.txt"',
          "Phase 4: Noise Decomp"),
     ]
     for cmd, label in cmds:
@@ -476,7 +484,13 @@ def deploy_to_hercules():
 
 def generate_tables_action():
     print("\n[TABLES] Generating LaTeX tables from results/...")
-    run_command("python generate_tables.py --results-dir ./results --tables-dir ./paper/tables")
+    tables_dir = os.path.join(CODE_DIR, "..", "paper", "tables")
+    gen_script  = os.path.join(CODE_DIR, "generate_tables.py")
+    run_command(
+        f'"{PYTHON}" "{gen_script}" '
+        f'--results-dir "{RESULTS_DIR}" '
+        f'--tables-dir "{os.path.abspath(tables_dir)}"'
+    )
     input("\nEnter to return...")
 
 
