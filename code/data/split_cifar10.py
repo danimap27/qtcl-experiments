@@ -90,10 +90,12 @@ class SplitCIFAR10:
         ])
 
         # Pool together the official train and test splits, then re-split.
-        self._pool_train_tf = datasets.CIFAR10(root, train=True,  download=True, transform=train_tf)
-        self._pool_eval_tf  = datasets.CIFAR10(root, train=True,  download=True, transform=eval_tf)
-        self._pool_test_train_tf = datasets.CIFAR10(root, train=False, download=True, transform=train_tf)
-        self._pool_test_eval_tf  = datasets.CIFAR10(root, train=False, download=True, transform=eval_tf)
+        # Datasets must be pre-downloaded via data/download_datasets.py
+        # to avoid concurrent download races across SLURM array tasks.
+        self._pool_train_tf      = datasets.CIFAR10(root, train=True,  download=False, transform=train_tf)
+        self._pool_eval_tf       = datasets.CIFAR10(root, train=True,  download=False, transform=eval_tf)
+        self._pool_test_train_tf = datasets.CIFAR10(root, train=False, download=False, transform=train_tf)
+        self._pool_test_eval_tf  = datasets.CIFAR10(root, train=False, download=False, transform=eval_tf)
 
     def _build_indices(self, task_id: int):
         """

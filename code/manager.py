@@ -461,6 +461,15 @@ def show_monitoring():
     print()
 
 
+def download_datasets_action():
+    """Pre-download CIFAR-10 and CIFAR-100 to ./data/datasets/."""
+    print("\n[DATASETS] Pre-downloading CIFAR-10 and CIFAR-100...")
+    download_script = os.path.join(CODE_DIR, "data", "download_datasets.py")
+    root = os.path.join(CODE_DIR, "data", "datasets")
+    run_command(f'"{PYTHON}" "{download_script}" --root "{root}"')
+    input("\nEnter to return...")
+
+
 def deploy_to_hercules():
     """Rsync code to Hercules and print the command to run there."""
     print("\n[DEPLOY] Syncing code to Hercules...")
@@ -528,6 +537,7 @@ def main():
         print()
         slurm_ok = sbatch_available()
         slurm_tag = "" if slurm_ok else "  [requires Hercules]"
+        print("  [P] Pre-download datasets (CIFAR-10 + CIFAR-100)")
         print("  [R] Refresh command files from config.yaml")
         print("  [D] Deploy code to Hercules (rsync + SSH instructions)")
         print("  ─────────────────────────────────────────")
@@ -547,7 +557,10 @@ def main():
 
         choice = input("  Option: ").strip().upper()
 
-        if choice == "R":
+        if choice == "P":
+            download_datasets_action()
+
+        elif choice == "R":
             refresh_commands()
 
         elif choice == "D":

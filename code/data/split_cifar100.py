@@ -97,10 +97,11 @@ class SplitCIFAR100:
             transforms.Normalize(mean, std),
         ])
 
-        self._pool_train_tf      = datasets.CIFAR100(root, train=True,  download=True, transform=train_tf)
-        self._pool_eval_tf       = datasets.CIFAR100(root, train=True,  download=True, transform=eval_tf)
-        self._pool_test_train_tf = datasets.CIFAR100(root, train=False, download=True, transform=train_tf)
-        self._pool_test_eval_tf  = datasets.CIFAR100(root, train=False, download=True, transform=eval_tf)
+        # Pre-downloaded via data/download_datasets.py
+        self._pool_train_tf      = datasets.CIFAR100(root, train=True,  download=False, transform=train_tf)
+        self._pool_eval_tf       = datasets.CIFAR100(root, train=True,  download=False, transform=eval_tf)
+        self._pool_test_train_tf = datasets.CIFAR100(root, train=False, download=False, transform=train_tf)
+        self._pool_test_eval_tf  = datasets.CIFAR100(root, train=False, download=False, transform=eval_tf)
 
     def _build_indices(self, task_id: int):
         ca, cb = self.task_pairs[task_id]
