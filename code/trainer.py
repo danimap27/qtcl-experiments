@@ -71,42 +71,39 @@ def load_backbone(backbone_name: str, frozen: bool = True) -> Tuple[nn.Module, i
 # ── Full model wrapper ────────────────────────────────────────────────────────
 
 class QTCLModel(nn.Module):
-    """Backbone + multi-head wrapper for continual learning."""
+    """Backbone + single shared head for continual learning.
+
+    All tasks share the same classification head. EWC consolidation protects
+    the head parameters that are important for prior tasks. This is the
+    canonical Split-MNIST / Split-CIFAR-10 setup where catastrophic
+    forgetting is actually measurable.
+    """
 
     def __init__(self, backbone: nn.Module, feature_dim: int):
         super().__init__()
         self.backbone = backbone
         self.feature_dim = feature_dim
-        self.heads: nn.ModuleList = nn.ModuleList()
-        self.current_task: int = 0
+        self.head: Optional[nn.Module] = None
 
-    def add_head(self, head: nn.Module) -> None:
-        self.heads.append(head)
-        self.current_task = len(self.heads) - 1
+    def set_head(self, head: nn.Module) -> None:
+        self.head = head
 
     def forward(self, x: torch.Tensor, task_id: Optional[int] = None) -> torch.Tensor:
-        tid = task_id if task_id is not None else self.current_task
-        with torch.set_grad_enabled(not self.backbone.training or len(list(self.backbone.parameters())) == 0):
-            z = self.backbone(x)
-        return self.heads[tid](z)
-
-    def parameters_for_ewc(self):
-        """Yield all trainable parameters (backbone if unfrozen + all heads)."""
-        for p in self.parameters():
-            if p.requires_grad:
-                yield p
+        # task_id is accepted for API compatibility but ignored — single shared head
+        z = self.backbone(x)
+        return self.head(z)
 
 
 # ── Evaluation ────────────────────────────────────────────────────────────────
 
-def evaluate(model: QTCLModel, loader, device: torch.device, task_id: int) -> float:
-    """Return accuracy on a single task's validation loader."""
+def evaluate(model: QTCLModel, loader, device: torch.device, task_id: int = 0) -> float:
+    """Return accuracy on a loader using the (single) shared head."""
     model.eval()
     correct = total = 0
     with torch.no_grad():
         for x, y in loader:
             x, y = x.to(device), y.to(device)
-            logits = model(x, task_id=task_id)
+            logits = model(x)
             preds = logits.argmax(dim=1)
             correct += (preds == y).sum().item()
             total += y.size(0)
@@ -144,7 +141,7 @@ def train_task(
             x, y = x.to(device), y.to(device)
             optimizer.zero_grad()
 
-            logits = model(x, task_id=task_id)
+            logits = model(x)
             loss = criterion(logits, y)
 
             if ewc.n_tasks_seen() > 0:
@@ -259,8 +256,19 @@ def train_and_evaluate(
     backbone = backbone.to(device)
 
     model = QTCLModel(backbone, feature_dim).to(device)
-    ewc   = EWC(lambda_ewc)
-    cl    = CLMetrics(n_tasks)
+
+    # Single shared head across all tasks → catastrophic forgetting is measurable
+    shared_head = get_head(head_cfg, feature_dim, n_classes=2).to(device)
+    model.set_head(shared_head)
+
+    # Single Adam optimiser persists across all tasks (state preserved between tasks)
+    optimizer = torch.optim.Adam(
+        filter(lambda p: p.requires_grad, model.parameters()),
+        lr=overrides.get("lr", train_cfg["lr"]),
+    )
+
+    ewc = EWC(lambda_ewc)
+    cl  = CLMetrics(n_tasks)
 
     # Keep test loaders for all tasks (used for the accuracy matrix)
     test_loaders = []
@@ -280,15 +288,7 @@ def train_and_evaluate(
         val_loaders.append(val_loader)
         test_loaders.append(test_loader)
 
-        # Add new head for this task
-        head = get_head(head_cfg, feature_dim, n_classes=2).to(device)
-        model.add_head(head)
-
-        # Optimise only the new head (backbone frozen)
-        optimizer = torch.optim.Adam(
-            filter(lambda p: p.requires_grad, model.parameters()),
-            lr=overrides.get("lr", train_cfg["lr"]),
-        )
+        # Per-task scheduler (resets at each task boundary)
         sched_cfg = train_cfg.get("scheduler", {})
         scheduler = torch.optim.lr_scheduler.StepLR(
             optimizer,
@@ -326,6 +326,7 @@ def train_and_evaluate(
         "backbone":    bb_name,
         "head":        head_name,
         "seed":        seed,
+        "study":       getattr(run_config, "study", "main"),
         "n_tasks":     n_tasks,
         "lambda_ewc":  lambda_ewc,
         "n_qubits":    head_cfg.get("n_qubits", "N/A"),
@@ -335,7 +336,7 @@ def train_and_evaluate(
         "AF":          summary["AF"],
         "BWT":         summary["BWT"],
         "train_time_s": total_time,
-        "n_params_head": count_trainable_params(model.heads[-1]) if model.heads else 0,
+        "n_params_head": count_trainable_params(model.head) if model.head is not None else 0,
         **{f"task_{j+1}_final_acc": cl.A[-1][j] for j in range(n_tasks)},
     }
 
