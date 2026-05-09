@@ -435,6 +435,86 @@ def fig_per_task_accuracy(df: pd.DataFrame, figures_dir: str) -> None:
     save_fig(fig, os.path.join(figures_dir, "per_task_accuracy.pdf"))
 
 
+def table_cl_methods(df: pd.DataFrame, tables_dir: str) -> None:
+    cm = df[df["study"] == "cl_methods"]
+    if cm.empty:
+        return
+    lines = [
+        "\\begin{tabular}{lllccc}",
+        "\\toprule",
+        "Dataset & Head & Method & AA $\\uparrow$ & AF $\\downarrow$ & BWT \\\\",
+        "\\midrule",
+    ]
+    prev = None
+    for (ds, hd), gh in cm.groupby(["dataset", "head"]):
+        if prev and prev != (ds, hd):
+            lines.append("\\midrule")
+        prev = (ds, hd)
+        for method, g in gh.groupby("cl_method"):
+            lines.append(
+                f"{ds.replace('_',' ')} & {hd} & {method} & "
+                f"{fmt_pm(g['AA'].mean(), g['AA'].std())} & "
+                f"{fmt_pm(g['AF'].mean(), g['AF'].std())} & "
+                f"{fmt_pm(g['BWT'].mean(), g['BWT'].std())} \\\\"
+            )
+    lines += ["\\bottomrule", "\\end{tabular}"]
+    write_tex(os.path.join(tables_dir, "cl_methods.tex"), lines)
+
+
+def table_arch_variants(df: pd.DataFrame, tables_dir: str) -> None:
+    av = df[df["study"] == "arch_variants"]
+    if av.empty:
+        return
+    lines = [
+        "\\begin{tabular}{lllccc}",
+        "\\toprule",
+        "Dataset & Backbone & Architecture & AA $\\uparrow$ & AF $\\downarrow$ & F1 \\\\",
+        "\\midrule",
+    ]
+    prev = None
+    for (ds, bb), gb in av.groupby(["dataset", "backbone"]):
+        if prev and prev != (ds, bb):
+            lines.append("\\midrule")
+        prev = (ds, bb)
+        for hd, g in gb.groupby("head"):
+            lines.append(
+                f"{ds.replace('_',' ')} & {bb} & {hd} & "
+                f"{fmt_pm(g['AA'].mean(), g['AA'].std())} & "
+                f"{fmt_pm(g['AF'].mean(), g['AF'].std())} & "
+                f"{fmt_pm(safe_mean(g, 'final_f1_mean'), safe_std(g, 'final_f1_mean'))} \\\\"
+            )
+    lines += ["\\bottomrule", "\\end{tabular}"]
+    write_tex(os.path.join(tables_dir, "arch_variants.tex"), lines)
+
+
+def fig_cl_methods_bars(df: pd.DataFrame, figures_dir: str) -> None:
+    cm = df[df["study"] == "cl_methods"]
+    if cm.empty:
+        return
+    fig, axes = plt.subplots(1, 3, figsize=(15, 4.5))
+    for ax, m in zip(axes, ["AA", "AF", "BWT"]):
+        if HAS_SEABORN:
+            sns.barplot(data=cm, x="cl_method", y=m, hue="head", ax=ax,
+                        errorbar="sd", palette="Set1")
+        ax.set_title(m)
+        ax.grid(True, alpha=0.3)
+    save_fig(fig, os.path.join(figures_dir, "cl_methods_comparison.pdf"))
+
+
+def fig_arch_variants_bars(df: pd.DataFrame, figures_dir: str) -> None:
+    av = df[df["study"] == "arch_variants"]
+    if av.empty:
+        return
+    fig, axes = plt.subplots(1, 2, figsize=(14, 4.5))
+    for ax, m in zip(axes, ["AA", "AF"]):
+        if HAS_SEABORN:
+            sns.barplot(data=av, x="head", y=m, ax=ax, errorbar="sd", palette="viridis")
+            ax.tick_params(axis="x", rotation=45)
+        ax.set_title(m)
+        ax.grid(True, alpha=0.3)
+    save_fig(fig, os.path.join(figures_dir, "arch_variants_comparison.pdf"))
+
+
 def fig_pvalue_heatmap(df: pd.DataFrame, figures_dir: str) -> None:
     """Holm-corrected p-value heatmap between heads (main study)."""
     main = df[df["study"] == "main"]
@@ -510,6 +590,8 @@ def generate_all(results_dir: str, paper_dir: str) -> None:
     table_bootstrap_ci(df, tables_dir)
     table_statistical_tests(df, tables_dir)
     table_friedman(df, tables_dir)
+    table_cl_methods(df, tables_dir)
+    table_arch_variants(df, tables_dir)
 
     # Figures
     fig_method_comparison(df, figures_dir)
@@ -521,6 +603,8 @@ def generate_all(results_dir: str, paper_dir: str) -> None:
     fig_energy_vs_accuracy(df, figures_dir)
     fig_per_task_accuracy(df, figures_dir)
     fig_pvalue_heatmap(df, figures_dir)
+    fig_cl_methods_bars(df, figures_dir)
+    fig_arch_variants_bars(df, figures_dir)
 
     print("\n[OK] Summary generation complete.")
 

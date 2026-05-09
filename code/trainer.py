@@ -17,7 +17,7 @@ import torchvision.models as models
 
 from data import SplitCIFAR10, SplitMNIST, get_task_loaders
 from heads import get_head, count_trainable_params
-from ewc import EWC
+from cl_methods import get_cl_method, ReplayCL
 from metrics import CLMetrics, supervised_metrics
 
 try:
@@ -153,7 +153,7 @@ def evaluate(model: QTCLModel, loader, device: torch.device, task_id: int = 0) -
 def train_task(
     model: QTCLModel,
     train_loader,
-    ewc: EWC,
+    cl_method,
     optimizer: torch.optim.Optimizer,
     scheduler,
     device: torch.device,
@@ -182,11 +182,22 @@ def train_task(
             logits = model(x)
             loss = criterion(logits, y)
 
-            if ewc.n_tasks_seen() > 0:
-                loss = loss + ewc.penalty(model)
+            # Replay augments the loss with previous-task samples
+            if isinstance(cl_method, ReplayCL):
+                replay = cl_method.replay_batch(x.size(0))
+                if replay is not None:
+                    rx, ry = replay
+                    rx, ry = rx.to(device), ry.to(device)
+                    loss = loss + cl_method.lam * criterion(model(rx), ry)
 
+            # Regularisation penalty (EWC, L2, SI, MAS, …)
+            if cl_method.n_tasks_seen() > 0:
+                loss = loss + cl_method.penalty(model)
+
+            cl_method.pre_step(model, loss)
             loss.backward()
             optimizer.step()
+            cl_method.post_step(model)
 
             epoch_loss    += loss.item() * y.size(0)
             epoch_correct += (logits.argmax(1) == y).sum().item()
@@ -305,8 +316,11 @@ def train_and_evaluate(
         lr=overrides.get("lr", train_cfg["lr"]),
     )
 
-    ewc = EWC(lambda_ewc)
-    cl  = CLMetrics(n_tasks)
+    # CL method (EWC by default, configurable via overrides or config)
+    cl_method_name = overrides.get("cl_method", config.get("cl_method", "ewc"))
+    cl_method = get_cl_method(cl_method_name, lam=lambda_ewc,
+                              buffer_size=ewc_cfg.get("buffer_size", 200))
+    cl = CLMetrics(n_tasks)
 
     # Per-run plots/predictions output directory
     plots_dir = os.path.join(config.get("output_dir", "./results"), "plots", run_id)
@@ -359,13 +373,13 @@ def train_and_evaluate(
 
         epochs = overrides.get("epochs_per_task", train_cfg["epochs_per_task"])
         task_log = train_task(
-            model, train_loader, ewc, optimizer, scheduler,
+            model, train_loader, cl_method, optimizer, scheduler,
             device, epochs, task_id, run_id,
         )
         all_training_logs.extend(task_log)
 
-        # Update EWC with Fisher for this task
-        ewc.update(model, train_loader, device, n_samples=ewc_cfg["fisher_samples"])
+        # Consolidate CL state for this task (Fisher / Omega / anchor / replay)
+        cl_method.update(model, train_loader, device, n_samples=ewc_cfg["fisher_samples"])
 
         # Evaluate ALL tasks seen-so-far + future ones (zero-shot for FWT).
         # Future tasks need their loaders built lazily.
@@ -441,7 +455,10 @@ def train_and_evaluate(
         "seed":        seed,
         "study":       getattr(run_config, "study", "main"),
         "n_tasks":     n_tasks,
+        "cl_method":   cl_method_name,
         "lambda_ewc":  lambda_ewc,
+        "ansatz":      head_cfg.get("ansatz", "circular"),
+        "variant":     head_cfg.get("variant", "mlp"),
         "n_qubits":    head_cfg.get("n_qubits", "N/A"),
         "depth":       head_cfg.get("depth", "N/A"),
         "noise":       head_cfg.get("noise", False),

@@ -53,7 +53,10 @@ COMMAND_FILES = {
     "2": (_cmd_path("cmds_2_ideal.txt"),     "Phase 2: Quantum Ideal (QK-Ideal)"),
     "3": (_cmd_path("cmds_3_noisy.txt"),     "Phase 3: Quantum Noisy (QK-Noisy)"),
     "4": (_cmd_path("cmds_4_studies.txt"),   "Phase 4: Studies (Ablation, Lambda, Scalability, Noise)"),
-    "A": (_cmd_path("cmds_ablation.txt"),    "Ablation Only (qubits × depth × 5 seeds)"),
+    "A": (_cmd_path("cmds_ablation.txt"),    "Ablation Only (qubits × depth × 2 seeds)"),
+    "B": (_cmd_path("cmds_research.txt"),    "Research Combined (Ablation + CL methods + Arch variants)"),
+    "L": (_cmd_path("cmds_cl_methods.txt"),  "CL methods comparison (naive/L2/EWC/SI/MAS/replay)"),
+    "V": (_cmd_path("cmds_arch_variants.txt"), "Architecture variants (classical + quantum ansatze)"),
 }
 
 # 2 datasets × 3 backbones × 3 heads × 5 seeds = 90 main
@@ -243,6 +246,24 @@ def refresh_commands():
         (f'"{PYTHON}" "{RUNNER}" --config "{CONFIG}" --study ablation '
          f'--dry-run --export-commands > "{cmds_dir}/cmds_ablation.txt"',
          "Ablation only (standalone)"),
+        # Standalone CL methods file
+        (f'"{PYTHON}" "{RUNNER}" --config "{CONFIG}" --study cl_methods '
+         f'--dry-run --export-commands > "{cmds_dir}/cmds_cl_methods.txt"',
+         "CL methods comparison"),
+        # Standalone arch variants file
+        (f'"{PYTHON}" "{RUNNER}" --config "{CONFIG}" --study arch_variants '
+         f'--dry-run --export-commands > "{cmds_dir}/cmds_arch_variants.txt"',
+         "Architecture variants"),
+        # Combined research file (ablation + cl_methods + arch_variants)
+        (f'"{PYTHON}" "{RUNNER}" --config "{CONFIG}" --study ablation '
+         f'--dry-run --export-commands > "{cmds_dir}/cmds_research.txt"',
+         "Research combined (ablation)"),
+        (f'"{PYTHON}" "{RUNNER}" --config "{CONFIG}" --study cl_methods '
+         f'--dry-run --export-commands >> "{cmds_dir}/cmds_research.txt"',
+         "Research combined (cl_methods)"),
+        (f'"{PYTHON}" "{RUNNER}" --config "{CONFIG}" --study arch_variants '
+         f'--dry-run --export-commands >> "{cmds_dir}/cmds_research.txt"',
+         "Research combined (arch_variants)"),
     ]
     for cmd, label in cmds:
         print(f"  {label}...", end=" ", flush=True)
@@ -705,6 +726,40 @@ def generate_summary_action():
     input("\nEnter to return...")
 
 
+def submit_named(key: str, overwrite: bool = False) -> None:
+    """Generic submit using COMMAND_FILES[key]."""
+    if not sbatch_available():
+        print("\n[ERROR] sbatch not found. Run on Hercules.")
+        input("\nEnter to return...")
+        return
+    if key not in COMMAND_FILES:
+        return
+    file_path, name = COMMAND_FILES[key]
+    n_tasks = get_slurm_tasks(file_path)
+    if n_tasks == 0:
+        print(f"\n[WARN] {os.path.basename(file_path)} is empty. Run [R] first.")
+        input("\nEnter to return...")
+        return
+
+    job_name = f"QTCL_{key}"
+    export_val = f"CMD_FILE={file_path},CODE_DIR={CODE_DIR}"
+    if overwrite:
+        export_val += ",EXTRA_ARGS=--overwrite"
+
+    slurm_script = os.path.join(CODE_DIR, "slurm_generic.sh")
+    cmd = (
+        f"sbatch --parsable --job-name='{job_name}' "
+        f"--partition={SLURM_PARTITION} "
+        f"--array=1-{n_tasks}%20 "
+        f"--export={export_val} \"{slurm_script}\""
+    )
+    print(f"\n[SUBMIT] {name} ({n_tasks} tasks)...")
+    job_id = run_command(cmd, capture=True)
+    if job_id:
+        print(f"[SUCCESS] Job ID: {job_id}")
+    input("\nEnter to return...")
+
+
 def submit_ablation_only(overwrite: bool = False):
     """Submit only the ablation study (full sweep with 5 seeds)."""
     if not sbatch_available():
@@ -778,7 +833,10 @@ def main():
         print(f"  [3] Submit Phase 3: Quantum Noisy      (QK-Noisy){slurm_tag}")
         print(f"  [4] Submit Phase 4: Studies            (Ablation / Lambda / Scalability / Noise){slurm_tag}")
         print(f"  [F] Submit FULL PIPELINE (1 → 2 → 3 → 4 with SLURM deps){slurm_tag}")
-        print(f"  [A] Submit ABLATION ONLY (qubits × depth × 5 seeds){slurm_tag}")
+        print(f"  [A] Submit ABLATION ONLY (qubits × depth){slurm_tag}")
+        print(f"  [L] Submit CL METHODS comparison (naive/L2/EWC/SI/MAS/replay){slurm_tag}")
+        print(f"  [V] Submit ARCH VARIANTS (classical + quantum ansatze){slurm_tag}")
+        print(f"  [B] Submit RESEARCH BUNDLE (ablation + CL methods + arch){slurm_tag}")
         print("  ─────────────────────────────────────────")
         print("  [M] Monitor live progress (refresh every 2s)")
         print("  [C] Check completed / pending runs")
@@ -834,6 +892,11 @@ def main():
             mode = check_completed(phase_key="A")
             if mode is not None:
                 submit_ablation_only(overwrite=(mode == "overwrite_all"))
+
+        elif choice in ("L", "V", "B"):
+            mode = check_completed(phase_key=choice)
+            if mode is not None:
+                submit_named(choice, overwrite=(mode == "overwrite_all"))
 
         elif choice == "K":
             cancel_all_jobs()

@@ -145,6 +145,42 @@ def generate_scalability_runs(config: Dict[str, Any]) -> List[RunConfig]:
     return runs
 
 
+def generate_cl_methods_runs(config: Dict[str, Any]) -> List[RunConfig]:
+    runs = []
+    cs = config.get("cl_methods_study", {})
+    if not cs:
+        return runs
+    for ds in cs.get("datasets", []):
+        for bb in cs.get("backbones", []):
+            for hd in cs.get("heads", []):
+                for method in cs.get("methods", ["ewc"]):
+                    for seed in cs.get("seeds", [42]):
+                        runs.append(RunConfig(
+                            run_id=f"{ds}_{bb}_{hd}_{method}_{seed}",
+                            dataset=ds, backbone=bb, head=hd, seed=seed,
+                            study="cl_methods",
+                            overrides={"cl_method": method},
+                        ))
+    return runs
+
+
+def generate_arch_variants_runs(config: Dict[str, Any]) -> List[RunConfig]:
+    runs = []
+    av = config.get("arch_variants", {})
+    if not av:
+        return runs
+    for ds in av.get("datasets", []):
+        for bb in av.get("backbones", []):
+            for hd in av.get("heads", []):
+                for seed in av.get("seeds", [42]):
+                    runs.append(RunConfig(
+                        run_id=f"{ds}_{bb}_{hd}_archvar_{seed}",
+                        dataset=ds, backbone=bb, head=hd, seed=seed,
+                        study="arch_variants",
+                    ))
+    return runs
+
+
 def generate_noise_decomposition_runs(config: Dict[str, Any]) -> List[RunConfig]:
     runs = []
     nd = config.get("noise_decomposition", {})
@@ -281,7 +317,8 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--head",        default=None)
     p.add_argument("--seed",        default=None)
     p.add_argument("--study",       default=None,
-                   choices=["ablation", "lambda_sensitivity", "scalability", "noise_decomposition"])
+                   choices=["ablation", "lambda_sensitivity", "scalability",
+                            "noise_decomposition", "cl_methods", "arch_variants"])
     p.add_argument("--dry-run",     action="store_true")
     p.add_argument("--count",       action="store_true")
     p.add_argument("--export-commands", action="store_true")
@@ -322,6 +359,10 @@ def main() -> int:
         runs = generate_scalability_runs(config)
     elif args.study == "noise_decomposition":
         runs = generate_noise_decomposition_runs(config)
+    elif args.study == "cl_methods":
+        runs = generate_cl_methods_runs(config)
+    elif args.study == "arch_variants":
+        runs = generate_arch_variants_runs(config)
     else:
         runs = generate_main_runs(config)
 

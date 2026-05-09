@@ -14,6 +14,7 @@ def get_head(head_cfg: Dict[str, Any], feature_dim: int, n_classes: int = 2) -> 
             n_classes=n_classes,
             hidden_dim=head_cfg.get("hidden_dim", 128),
             dropout=head_cfg.get("dropout", 0.3),
+            variant=head_cfg.get("variant", "mlp"),
         )
     elif head_type == "qiskit":
         return QiskitHead(
@@ -27,6 +28,7 @@ def get_head(head_cfg: Dict[str, Any], feature_dim: int, n_classes: int = 2) -> 
             noise_params=head_cfg.get("noise_params", None),
             noise_channels=head_cfg.get("noise_channels", None),
             gradient_method=head_cfg.get("gradient_method", "reverse"),
+            ansatz=head_cfg.get("ansatz", "circular"),
         )
     else:
         raise ValueError(f"Unknown head type: {head_type}")

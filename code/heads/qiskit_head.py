@@ -17,28 +17,76 @@ import numpy as np
 from typing import Optional, Dict, List
 
 
-def _build_vqc(n_qubits: int, depth: int):
-    """Parameterized VQC: angle encoding + n_qubits*depth R_Y rotations + circular CNOT entanglement."""
+def _build_vqc(n_qubits: int, depth: int, ansatz: str = "circular"):
+    """
+    Parameterized VQC with angle encoding and configurable ansatz.
+
+    Args:
+        ansatz: 'circular'    — R_Y rotations + circular CNOTs (default)
+                'linear'      — R_Y rotations + linear CNOTs (no wrap-around)
+                'no_ent'      — R_Y rotations only, no entanglement
+                'real_amp'    — RealAmplitudes (R_Y + full entanglement)
+                'efficient_su2'— EfficientSU2 (R_Y, R_Z + entanglement)
+                'two_local'   — TwoLocal with R_X+R_Y rotation block
+                're_upload'   — Data re-uploading (encoding repeated each layer)
+    """
     from qiskit.circuit import QuantumCircuit, ParameterVector
 
-    inputs  = ParameterVector("x", n_qubits)
-    weights = ParameterVector("w", n_qubits * depth)
-
+    inputs = ParameterVector("x", n_qubits)
     qc = QuantumCircuit(n_qubits)
+    weights: List = []
+
+    if ansatz in ("circular", "linear", "no_ent", "re_upload"):
+        wp = ParameterVector("w", n_qubits * depth)
+        weights = list(wp)
+
+        # Initial encoding
+        for i in range(n_qubits):
+            qc.ry(inputs[i], i)
+
+        idx = 0
+        for _ in range(depth):
+            if ansatz == "re_upload":
+                for i in range(n_qubits):
+                    qc.ry(inputs[i], i)
+            for i in range(n_qubits):
+                qc.ry(wp[idx], i)
+                idx += 1
+            if ansatz == "circular":
+                for i in range(n_qubits - 1):
+                    qc.cx(i, i + 1)
+                if n_qubits > 1:
+                    qc.cx(n_qubits - 1, 0)
+            elif ansatz == "linear":
+                for i in range(n_qubits - 1):
+                    qc.cx(i, i + 1)
+            elif ansatz == "re_upload":
+                for i in range(n_qubits - 1):
+                    qc.cx(i, i + 1)
+            # no_ent: no CNOTs
+
+        return qc, list(inputs), weights
+
+    # Library ansätze
+    from qiskit.circuit.library import RealAmplitudes, EfficientSU2, TwoLocal
+
+    # Encoding first
     for i in range(n_qubits):
         qc.ry(inputs[i], i)
 
-    idx = 0
-    for _ in range(depth):
-        for i in range(n_qubits):
-            qc.ry(weights[idx], i)
-            idx += 1
-        for i in range(n_qubits - 1):
-            qc.cx(i, i + 1)
-        if n_qubits > 1:
-            qc.cx(n_qubits - 1, 0)
+    if ansatz == "real_amp":
+        ans = RealAmplitudes(n_qubits, reps=depth, entanglement="full")
+    elif ansatz == "efficient_su2":
+        ans = EfficientSU2(n_qubits, reps=depth, entanglement="circular")
+    elif ansatz == "two_local":
+        ans = TwoLocal(n_qubits, rotation_blocks=["rx", "ry"],
+                       entanglement_blocks="cz", reps=depth, entanglement="linear")
+    else:
+        raise ValueError(f"Unknown ansatz: {ansatz}")
 
-    return qc, inputs, weights
+    qc.compose(ans, qubits=range(n_qubits), inplace=True)
+    weights = list(ans.parameters)
+    return qc, list(inputs), weights
 
 
 def _build_noise_model(noise_params: Dict[str, float], noise_channels: Optional[List[str]] = None):
@@ -113,10 +161,12 @@ class QiskitHead(nn.Module):
         noise_params: Optional[Dict[str, float]] = None,
         noise_channels: Optional[List[str]] = None,
         gradient_method: str = "reverse",
+        ansatz: str = "circular",
     ):
         super().__init__()
         self.n_qubits = n_qubits
         self.n_classes = n_classes
+        self.ansatz = ansatz
 
         self.classical_branch = nn.Sequential(
             nn.Linear(feature_dim, 128),
@@ -130,7 +180,7 @@ class QiskitHead(nn.Module):
         from qiskit_machine_learning.connectors import TorchConnector
         from qiskit.quantum_info import SparsePauliOp
 
-        qc, inputs_pv, weights_pv = _build_vqc(n_qubits, depth)
+        qc, inputs_pv, weights_pv = _build_vqc(n_qubits, depth, ansatz=ansatz)
 
         # Single-qubit Pauli-Z observables (n_qubits outputs, NOT 2^n_qubits)
         observables = []

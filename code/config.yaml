@@ -50,10 +50,23 @@ backbones:
 # CLASSIFICATION HEADS
 # =============================================================
 heads:
-  # --- Classical Baseline ---
+  # --- Classical baselines ---
+  - name: "linear"
+    type: "classical"
+    description: "Single linear layer (no hidden)"
+    variant: "linear"
+
   - name: "mlp"
     type: "classical"
-    description: "Two-layer MLP (128 hidden units, ReLU, Dropout 0.3)"
+    description: "MLP (128 hidden, ReLU, Dropout 0.3)"
+    variant: "mlp"
+    hidden_dim: 128
+    dropout: 0.3
+
+  - name: "mlp_deep"
+    type: "classical"
+    description: "Two-hidden-layer MLP (128 → 64)"
+    variant: "mlp_deep"
     hidden_dim: 128
     dropout: 0.3
 
@@ -75,6 +88,7 @@ heads:
     noise: true
     shots: 1024
     gradient_method: "spsa"
+    ansatz: "circular"
     noise_params:
       T1_us: 250
       T2_us: 150
@@ -84,12 +98,71 @@ heads:
       p2q: 0.005
       readout_error: 0.012
 
+  # --- Quantum ansatz variants (for arch_variants study) ---
+  - name: "qk_linear"
+    type: "qiskit"
+    description: "VQC with linear (non-circular) CNOT entanglement"
+    backend: "statevector"
+    n_qubits: 4
+    depth: 2
+    noise: false
+    ansatz: "linear"
+
+  - name: "qk_no_ent"
+    type: "qiskit"
+    description: "VQC with NO entanglement (rotations only)"
+    backend: "statevector"
+    n_qubits: 4
+    depth: 2
+    noise: false
+    ansatz: "no_ent"
+
+  - name: "qk_real_amp"
+    type: "qiskit"
+    description: "RealAmplitudes ansatz (full entanglement)"
+    backend: "statevector"
+    n_qubits: 4
+    depth: 2
+    noise: false
+    ansatz: "real_amp"
+
+  - name: "qk_efficient_su2"
+    type: "qiskit"
+    description: "EfficientSU2 ansatz (R_Y + R_Z + circular)"
+    backend: "statevector"
+    n_qubits: 4
+    depth: 2
+    noise: false
+    ansatz: "efficient_su2"
+
+  - name: "qk_two_local"
+    type: "qiskit"
+    description: "TwoLocal ansatz (R_X + R_Y, CZ entanglement)"
+    backend: "statevector"
+    n_qubits: 4
+    depth: 2
+    noise: false
+    ansatz: "two_local"
+
+  - name: "qk_re_upload"
+    type: "qiskit"
+    description: "Data re-uploading VQC (encoding repeated each layer)"
+    backend: "statevector"
+    n_qubits: 4
+    depth: 2
+    noise: false
+    ansatz: "re_upload"
+
 # =============================================================
 # EWC HYPERPARAMETERS
 # =============================================================
 ewc:
   lambda: 5000
   fisher_samples: 200
+  buffer_size: 200          # for replay method
+
+# Default CL method ('naive' | 'l2' | 'ewc' | 'si' | 'mas' | 'replay')
+cl_method: "ewc"
 
 # =============================================================
 # TRAINING HYPERPARAMETERS
@@ -138,6 +211,27 @@ scalability:
   backbones: ["resnet18"]
   heads: ["mlp", "qk_ideal", "qk_noisy"]
   seeds: [42, 123]
+
+# --- CL methods comparison: naive, L2, EWC, SI, MAS, replay ---
+# 1 dataset × 1 backbone × 1 head × 6 methods × 5 seeds = 30 runs
+cl_methods_study:
+  enabled: true
+  datasets: ["split_mnist"]
+  backbones: ["resnet18"]
+  heads: ["mlp", "qk_ideal"]
+  methods: ["naive", "l2", "ewc", "si", "mas", "replay"]
+  seeds: [0, 42, 123, 456, 789]
+
+# --- Architecture variants: classical and quantum ansatz comparison ---
+# 1 dataset × 1 backbone × multiple heads × EWC × 5 seeds
+arch_variants:
+  enabled: true
+  datasets: ["split_mnist"]
+  backbones: ["resnet18"]
+  heads: ["linear", "mlp", "mlp_deep",
+          "qk_ideal", "qk_linear", "qk_no_ent",
+          "qk_real_amp", "qk_efficient_su2", "qk_two_local", "qk_re_upload"]
+  seeds: [0, 42, 123, 456, 789]
 
 # --- Noise Decomposition: impact per channel ---
 noise_decomposition:
