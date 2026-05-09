@@ -462,8 +462,8 @@ def show_monitoring():
 
 
 def download_datasets_action():
-    """Pre-download CIFAR-10 and CIFAR-100 to ./data/datasets/."""
-    print("\n[DATASETS] Pre-downloading CIFAR-10 and CIFAR-100...")
+    """Pre-download MNIST and CIFAR-10 to ./data/datasets/."""
+    print("\n[DATASETS] Pre-downloading MNIST and CIFAR-10...")
     download_script = os.path.join(CODE_DIR, "data", "download_datasets.py")
     root = os.path.join(CODE_DIR, "data", "datasets")
     run_command(f'"{PYTHON}" "{download_script}" --root "{root}"')
