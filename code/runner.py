@@ -291,9 +291,13 @@ def parse_args() -> argparse.Namespace:
 
 
 def export_commands(runs: List[RunConfig], args: argparse.Namespace) -> None:
+    # Use absolute paths so SLURM job arrays work regardless of working directory.
+    python_bin  = sys.executable
+    runner_path = os.path.abspath(__file__)
+    config_path = os.path.abspath(args.config)
     for r in runs:
         cmd = [
-            f"python runner.py --config {args.config}",
+            f'"{python_bin}" "{runner_path}" --config "{config_path}"',
             f"--dataset {r.dataset}",
             f"--backbone {r.backbone}",
             f"--head {r.head}",

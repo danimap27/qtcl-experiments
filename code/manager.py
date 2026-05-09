@@ -341,8 +341,8 @@ def submit_phase(key: str, dependency_id: Optional[str] = None, overwrite: bool 
     dep_arg  = f"--dependency=afterok:{dependency_id}" if dependency_id else ""
     job_name = f"QTCL_{key}"
 
-    # Build --export without trailing comma when EXTRA_ARGS is empty
-    export_val = f"CMD_FILE={file_path}"
+    # CODE_DIR lets slurm_generic.sh cd to the right place regardless of SLURM cwd
+    export_val = f"CMD_FILE={file_path},CODE_DIR={CODE_DIR}"
     if overwrite:
         export_val += ",EXTRA_ARGS=--overwrite"
 
