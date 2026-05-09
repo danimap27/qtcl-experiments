@@ -1,0 +1,1 @@
+[INFO] Running: python runner.py --config /lustre/home/dmartin/qtcl-experiments/code/config.yaml --dataset split_cifar10 --backbone resnet18 --head mlp --seed 0 --machine-id hercules 

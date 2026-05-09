@@ -237,22 +237,19 @@ def train_and_evaluate(
         head_cfg["noise_channels"] = overrides["noise_channels"]
 
     # Build dataset
+    common_ds_kwargs = dict(
+        root=ds_cfg["root"],
+        n_tasks=n_tasks,
+        image_size=ds_cfg.get("image_size", 32),
+        subset_fraction=ds_cfg.get("subset_fraction", 1.0),
+        train_test_split=ds_cfg.get("train_test_split", 0.8),
+        train_val_split=ds_cfg.get("train_val_split", 0.8),
+        seed=seed,
+    )
     if ds_name == "split_cifar10":
-        dataset = SplitCIFAR10(
-            root=ds_cfg["root"],
-            n_tasks=n_tasks,
-            image_size=ds_cfg.get("image_size", 32),
-            samples_per_task_train=ds_cfg.get("samples_per_task_train"),
-            samples_per_task_val=ds_cfg.get("samples_per_task_val"),
-        )
+        dataset = SplitCIFAR10(**common_ds_kwargs)
     elif ds_name == "split_cifar100":
-        dataset = SplitCIFAR100(
-            root=ds_cfg["root"],
-            n_tasks=n_tasks,
-            image_size=ds_cfg.get("image_size", 32),
-            samples_per_task_train=ds_cfg.get("samples_per_task_train"),
-            samples_per_task_val=ds_cfg.get("samples_per_task_val"),
-        )
+        dataset = SplitCIFAR100(**common_ds_kwargs)
     else:
         raise ValueError(f"Unknown dataset: {ds_name}")
 
@@ -265,8 +262,9 @@ def train_and_evaluate(
     ewc   = EWC(lambda_ewc)
     cl    = CLMetrics(n_tasks)
 
-    # Keep validation loaders for all tasks
-    val_loaders = []
+    # Keep test loaders for all tasks (used for the accuracy matrix)
+    test_loaders = []
+    val_loaders  = []
     all_training_logs = []
 
     t_start = time.time()
@@ -274,12 +272,13 @@ def train_and_evaluate(
     for task_id in range(n_tasks):
         logger.info(f"[{run_id}] === Task {task_id+1}/{n_tasks}: {dataset.task_description(task_id)} ===")
 
-        train_loader, val_loader = get_task_loaders(
+        train_loader, val_loader, test_loader = get_task_loaders(
             dataset, task_id,
             batch_size=train_cfg["batch_size"],
             num_workers=2,
         )
         val_loaders.append(val_loader)
+        test_loaders.append(test_loader)
 
         # Add new head for this task
         head = get_head(head_cfg, feature_dim, n_classes=2).to(device)
@@ -307,16 +306,16 @@ def train_and_evaluate(
         # Update EWC with Fisher for this task
         ewc.update(model, train_loader, device, n_samples=ewc_cfg["fisher_samples"])
 
-        # Evaluate on all tasks seen so far
+        # Evaluate on all tasks seen so far (use the held-out test split)
         acc_row = []
         for j in range(n_tasks):
             if j <= task_id:
-                acc = evaluate(model, val_loaders[j], device, task_id=j)
+                acc = evaluate(model, test_loaders[j], device, task_id=j)
             else:
                 acc = 0.0
             acc_row.append(acc)
         cl.record(acc_row)
-        logger.info(f"[{run_id}] Task {task_id+1} eval: {[f'{a*100:.1f}' for a in acc_row]}")
+        logger.info(f"[{run_id}] Task {task_id+1} test eval: {[f'{a*100:.1f}' for a in acc_row]}")
 
     total_time = time.time() - t_start
     summary = cl.summary()

@@ -19,16 +19,18 @@ datasets:
     root: "./data/datasets"
     n_tasks: 5
     image_size: 32
-    # null = use full training split (~10k images per task)
-    samples_per_task_train: null
-    samples_per_task_val: null
+    # 20% subset of full data → 80% train+val / 20% test → 80/20 train/val
+    subset_fraction: 0.2
+    train_test_split: 0.8     # 80% of subset → train+val, 20% → test
+    train_val_split: 0.8      # 80% of train+val → train, 20% → val
 
   - name: "split_cifar100"
     root: "./data/datasets"
     n_tasks: 10
     image_size: 32
-    samples_per_task_train: null
-    samples_per_task_val: null
+    subset_fraction: 0.2
+    train_test_split: 0.8
+    train_val_split: 0.8
 
 # =============================================================
 # BACKBONES (ImageNet-pretrained, frozen)
