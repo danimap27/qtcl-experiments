@@ -52,7 +52,7 @@ COMMAND_FILES = {
     "1": (_cmd_path("cmds_1_classical.txt"), "Phase 1: Classical Baseline (MLP)"),
     "2": (_cmd_path("cmds_2_ideal.txt"),     "Phase 2: Quantum Ideal (QK-Ideal)"),
     "3": (_cmd_path("cmds_3_noisy.txt"),     "Phase 3: Quantum Noisy (QK-Noisy)"),
-    "4": (_cmd_path("cmds_4_studies.txt"),   "Phase 4: Studies (Ablation, Lambda, Scalability, Noise)"),
+    "4": (_cmd_path("cmds_4_studies.txt"),   "Phase 4: Studies (Lambda, Scalability, Noise)"),
     "A": (_cmd_path("cmds_ablation.txt"),    "Ablation Only (qubits × depth × 2 seeds)"),
     "B": (_cmd_path("cmds_research.txt"),    "Research Combined (Ablation + CL methods + Arch variants)"),
     "L": (_cmd_path("cmds_cl_methods.txt"),  "CL methods comparison (naive/L2/EWC/SI/DER++/replay)"),
@@ -229,12 +229,9 @@ def refresh_commands():
         (f'"{PYTHON}" "{RUNNER}" --config "{CONFIG}" --head qk_noisy '
          f'--dry-run --export-commands > "{cmds_dir}/cmds_3_noisy.txt"',
          "Phase 3: QK-Noisy"),
-        # Phase 4: studies
-        (f'"{PYTHON}" "{RUNNER}" --config "{CONFIG}" --study ablation '
-         f'--dry-run --export-commands > "{cmds_dir}/cmds_4_studies.txt"',
-         "Phase 4: Ablation"),
+        # Phase 4: studies NOT covered by [A]/[L]/[V] (lambda + scalability + noise)
         (f'"{PYTHON}" "{RUNNER}" --config "{CONFIG}" --study lambda_sensitivity '
-         f'--dry-run --export-commands >> "{cmds_dir}/cmds_4_studies.txt"',
+         f'--dry-run --export-commands > "{cmds_dir}/cmds_4_studies.txt"',
          "Phase 4: Lambda"),
         (f'"{PYTHON}" "{RUNNER}" --config "{CONFIG}" --study scalability '
          f'--dry-run --export-commands >> "{cmds_dir}/cmds_4_studies.txt"',
@@ -831,7 +828,7 @@ def main():
         print(f"  [1] Submit Phase 1: Classical Baseline (MLP){slurm_tag}")
         print(f"  [2] Submit Phase 2: Quantum Ideal      (QK-Ideal){slurm_tag}")
         print(f"  [3] Submit Phase 3: Quantum Noisy      (QK-Noisy){slurm_tag}")
-        print(f"  [4] Submit Phase 4: Studies            (Ablation / Lambda / Scalability / Noise){slurm_tag}")
+        print(f"  [4] Submit Phase 4: Studies            (Lambda / Scalability / Noise){slurm_tag}")
         print(f"  [F] Submit FULL PIPELINE (1 → 2 → 3 → 4 with SLURM deps){slurm_tag}")
         print(f"  [A] Submit ABLATION ONLY (qubits × depth){slurm_tag}")
         print(f"  [L] Submit CL METHODS comparison (naive/L2/EWC/SI/DER++/replay){slurm_tag}")
