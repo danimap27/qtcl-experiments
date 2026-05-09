@@ -60,7 +60,8 @@ COMMAND_FILES = {
 # lambda:   3 heads × 7 lambdas × 1 seed  = 21
 # scale:    2 datasets × 1 backbone × 3 heads × 2 seeds = 12
 # noise decomp: 1 dataset × 1 backbone × 3 channels × 1 seed = 3
-EXPECTED_RUNS = 186
+EXPECTED_RUNS  = 186
+SLURM_PARTITION = "standard"   # Hercules CICA: standard (CPU) or gpu
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -345,10 +346,12 @@ def submit_phase(key: str, dependency_id: Optional[str] = None, overwrite: bool 
     if overwrite:
         export_val += ",EXTRA_ARGS=--overwrite"
 
+    slurm_script = os.path.join(CODE_DIR, "slurm_generic.sh")
     cmd = (
         f"sbatch --parsable --job-name='{job_name}' "
+        f"--partition={SLURM_PARTITION} "
         f"--array=1-{n_tasks}%20 {dep_arg} "
-        f"--export={export_val} slurm_generic.sh"
+        f"--export={export_val} \"{slurm_script}\""
     )
     print(f"\n[SUBMIT] {name} ({n_tasks} tasks)...")
     job_id = run_command(cmd, capture=True)

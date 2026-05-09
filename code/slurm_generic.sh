@@ -4,14 +4,14 @@
 #SBATCH --time=24:00:00
 #SBATCH --mem=16G
 #SBATCH --cpus-per-task=4
-#SBATCH --partition=medium
+#SBATCH --partition=standard
 
 # CMD_FILE is injected via --export by manager.py.
 # EXTRA_ARGS is optional (e.g. --overwrite); defaults to empty string if not set.
 
-source /home/quantum-nas/.bashrc
-conda activate qtcl
-cd /path/to/QTCL/code   # <-- update this path
+module load Miniconda3
+source activate qtcl
+cd "$(dirname "$(realpath "$0")")"   # always run from script's own directory
 
 CMD=$(sed -n "${SLURM_ARRAY_TASK_ID}p" "$CMD_FILE")
 

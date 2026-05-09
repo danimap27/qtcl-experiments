@@ -6,7 +6,7 @@
 #SBATCH --mem=16G
 #SBATCH --cpus-per-task=4
 #SBATCH --array=0-89%10          # 2 datasets × 3 backbones × 3 heads × 5 seeds = 90 runs
-#SBATCH --partition=medium
+#SBATCH --partition=standard
 
 # ── Environment ────────────────────────────────────────────────────────────────
 source /home/quantum-nas/.bashrc

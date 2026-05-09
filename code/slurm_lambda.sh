@@ -6,7 +6,7 @@
 #SBATCH --mem=16G
 #SBATCH --cpus-per-task=4
 #SBATCH --array=0-20%6           # 3 heads × 7 lambdas × 1 seed = 21 runs
-#SBATCH --partition=short
+#SBATCH --partition=standard
 
 source /home/quantum-nas/.bashrc
 conda activate qtcl
