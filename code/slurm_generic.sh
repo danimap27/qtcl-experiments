@@ -6,9 +6,8 @@
 #SBATCH --cpus-per-task=4
 #SBATCH --partition=medium
 
-# CMD_FILE and EXTRA_ARGS are injected via --export by manager.py
-# CMD_FILE: path to the .txt file with one command per line
-# EXTRA_ARGS: optional flags like --overwrite
+# CMD_FILE is injected via --export by manager.py.
+# EXTRA_ARGS is optional (e.g. --overwrite); defaults to empty string if not set.
 
 source /home/quantum-nas/.bashrc
 conda activate qtcl
@@ -21,5 +20,7 @@ if [ -z "$CMD" ]; then
     exit 1
 fi
 
-echo "[INFO] Running: $CMD $EXTRA_ARGS"
+EXTRA_ARGS="${EXTRA_ARGS:-}"
+
+echo "[INFO] Running: $CMD --machine-id hercules $EXTRA_ARGS"
 eval "$CMD --machine-id hercules $EXTRA_ARGS"

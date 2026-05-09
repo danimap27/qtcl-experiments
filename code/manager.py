@@ -74,8 +74,15 @@ def run_command(cmd: str, capture: bool = False):
             subprocess.run(cmd, shell=True, check=True)
             return True
     except subprocess.CalledProcessError as e:
-        print(f"\n[ERROR] {cmd}\n{e}")
+        stderr = e.stderr.strip() if hasattr(e, "stderr") and e.stderr else ""
+        print(f"\n[ERROR] Command failed: {cmd}")
+        if stderr:
+            print(f"  stderr: {stderr}")
         return None
+
+
+def sbatch_available() -> bool:
+    return subprocess.run("which sbatch", shell=True, capture_output=True).returncode == 0
 
 
 def get_slurm_tasks(file_path: str) -> int:
@@ -307,20 +314,30 @@ def check_completed(phase_key: Optional[str] = None, view_only: bool = False) ->
 def submit_phase(key: str, dependency_id: Optional[str] = None, overwrite: bool = False) -> Optional[str]:
     if key not in COMMAND_FILES:
         return None
+
+    if not sbatch_available():
+        print("\n[ERROR] sbatch not found. manager.py must run ON Hercules, not locally.")
+        print("  Deploy with [D] or SSH to Hercules and run: python manager.py")
+        return None
+
     file_path, name = COMMAND_FILES[key]
     n_tasks = get_slurm_tasks(file_path)
     if n_tasks == 0:
         print(f"\n[WARN] No tasks in {file_path}. Run [R] first.")
         return None
 
-    dep_arg   = f"--dependency=afterok:{dependency_id}" if dependency_id else ""
-    job_name  = f"QTCL_{key}".replace(" ", "_")
-    ow_flag   = "--overwrite" if overwrite else ""
+    dep_arg  = f"--dependency=afterok:{dependency_id}" if dependency_id else ""
+    job_name = f"QTCL_{key}"
+
+    # Build --export without trailing comma when EXTRA_ARGS is empty
+    export_val = f"CMD_FILE={file_path}"
+    if overwrite:
+        export_val += ",EXTRA_ARGS=--overwrite"
 
     cmd = (
         f"sbatch --parsable --job-name='{job_name}' "
         f"--array=1-{n_tasks}%20 {dep_arg} "
-        f"--export=CMD_FILE={file_path},EXTRA_ARGS={ow_flag} slurm_generic.sh"
+        f"--export={export_val} slurm_generic.sh"
     )
     print(f"\n[SUBMIT] {name} ({n_tasks} tasks)...")
     job_id = run_command(cmd, capture=True)
@@ -430,6 +447,30 @@ def show_monitoring():
     print()
 
 
+def deploy_to_hercules():
+    """Rsync code to Hercules and print the command to run there."""
+    print("\n[DEPLOY] Syncing code to Hercules...")
+    hercules_user = input("  Hercules username [quantum-nas]: ").strip() or "quantum-nas"
+    hercules_host = input("  Hercules host [hercules.cica.es]: ").strip() or "hercules.cica.es"
+    remote_path   = input("  Remote path [~/QTCL/code]: ").strip() or "~/QTCL/code"
+
+    local_path = os.path.dirname(os.path.abspath(__file__))
+    rsync_cmd = (
+        f"rsync -avz --exclude='results/' --exclude='__pycache__/' --exclude='*.pyc' "
+        f"{local_path}/ {hercules_user}@{hercules_host}:{remote_path}/"
+    )
+    print(f"\n  Running: {rsync_cmd}")
+    ok = run_command(rsync_cmd)
+    if ok:
+        print(f"\n[OK] Code deployed.")
+        print(f"\n  SSH and run manager on Hercules:")
+        print(f"    ssh {hercules_user}@{hercules_host}")
+        print(f"    cd {remote_path}")
+        print(f"    conda activate qtcl")
+        print(f"    python manager.py")
+    input("\nEnter to return...")
+
+
 def generate_tables_action():
     print("\n[TABLES] Generating LaTeX tables from results/...")
     run_command("python generate_tables.py --results-dir ./results --tables-dir ./paper/tables")
@@ -465,13 +506,16 @@ def main():
         total, _, _ = scan_progress()
         print(f"  Progress: {progress_bar(total, EXPECTED_RUNS, width=30)}")
         print()
+        slurm_ok = sbatch_available()
+        slurm_tag = "" if slurm_ok else "  [requires Hercules]"
         print("  [R] Refresh command files from config.yaml")
+        print("  [D] Deploy code to Hercules (rsync + SSH instructions)")
         print("  ─────────────────────────────────────────")
-        print("  [1] Submit Phase 1: Classical Baseline (MLP)")
-        print("  [2] Submit Phase 2: Quantum Ideal      (QK-Ideal)")
-        print("  [3] Submit Phase 3: Quantum Noisy      (QK-Noisy)")
-        print("  [4] Submit Phase 4: Studies            (Ablation / Lambda / Scalability / Noise)")
-        print("  [F] Submit FULL PIPELINE (1 → 2 → 3 → 4 with SLURM deps)")
+        print(f"  [1] Submit Phase 1: Classical Baseline (MLP){slurm_tag}")
+        print(f"  [2] Submit Phase 2: Quantum Ideal      (QK-Ideal){slurm_tag}")
+        print(f"  [3] Submit Phase 3: Quantum Noisy      (QK-Noisy){slurm_tag}")
+        print(f"  [4] Submit Phase 4: Studies            (Ablation / Lambda / Scalability / Noise){slurm_tag}")
+        print(f"  [F] Submit FULL PIPELINE (1 → 2 → 3 → 4 with SLURM deps){slurm_tag}")
         print("  ─────────────────────────────────────────")
         print("  [M] Monitor live progress (refresh every 2s)")
         print("  [C] Check completed / pending runs")
@@ -485,6 +529,9 @@ def main():
 
         if choice == "R":
             refresh_commands()
+
+        elif choice == "D":
+            deploy_to_hercules()
 
         elif choice in ("1", "2", "3", "4"):
             mode = check_completed(phase_key=choice)
