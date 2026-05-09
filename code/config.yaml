@@ -15,7 +15,7 @@ seeds: [0, 42, 123, 456, 789]
 # DATASETS
 # =============================================================
 datasets:
-  - name: "split_cifar10"
+  - name: "split_mnist"
     root: "./data/datasets"
     n_tasks: 5
     image_size: 32
@@ -24,9 +24,9 @@ datasets:
     train_test_split: 0.8     # 80% of subset → train+val, 20% → test
     train_val_split: 0.8      # 80% of train+val → train, 20% → val
 
-  - name: "split_cifar100"
+  - name: "split_cifar10"
     root: "./data/datasets"
-    n_tasks: 10
+    n_tasks: 5
     image_size: 32
     subset_fraction: 0.2
     train_test_split: 0.8
@@ -131,7 +131,7 @@ lambda_sensitivity:
 # --- Scalability: number of sequential tasks ---
 scalability:
   enabled: true
-  datasets: ["split_cifar10", "split_cifar100"]
+  datasets: ["split_mnist", "split_cifar10"]
   backbones: ["resnet18"]
   heads: ["mlp", "qk_ideal", "qk_noisy"]
   seeds: [42, 123]

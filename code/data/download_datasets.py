@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Pre-download CIFAR-10 and CIFAR-100 datasets to a local cache.
+Pre-download MNIST and CIFAR-10 datasets to a local cache.
 
 Run once before submitting SLURM jobs to avoid concurrent download races
 across array tasks. After this script finishes, the SLURM jobs use
@@ -20,24 +20,21 @@ from torchvision import datasets
 
 def download_all(root: str) -> None:
     os.makedirs(root, exist_ok=True)
+    print(f"[INFO] Target directory: {os.path.abspath(root)}\n")
 
-    print(f"[INFO] Target directory: {os.path.abspath(root)}")
-    print()
+    print("[1/4] Downloading MNIST train split...")
+    datasets.MNIST(root=root, train=True,  download=True)
 
-    print("[1/4] Downloading CIFAR-10 train split...")
+    print("[2/4] Downloading MNIST test split...")
+    datasets.MNIST(root=root, train=False, download=True)
+
+    print("[3/4] Downloading CIFAR-10 train split...")
     datasets.CIFAR10(root=root, train=True,  download=True)
 
-    print("[2/4] Downloading CIFAR-10 test split...")
+    print("[4/4] Downloading CIFAR-10 test split...")
     datasets.CIFAR10(root=root, train=False, download=True)
 
-    print("[3/4] Downloading CIFAR-100 train split...")
-    datasets.CIFAR100(root=root, train=True,  download=True)
-
-    print("[4/4] Downloading CIFAR-100 test split...")
-    datasets.CIFAR100(root=root, train=False, download=True)
-
-    print()
-    print("[OK] All datasets ready at:", os.path.abspath(root))
+    print("\n[OK] All datasets ready at:", os.path.abspath(root))
 
 
 def main() -> int:

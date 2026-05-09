@@ -15,7 +15,7 @@ import torch
 import torch.nn as nn
 import torchvision.models as models
 
-from data import SplitCIFAR10, SplitCIFAR100, get_task_loaders
+from data import SplitCIFAR10, SplitMNIST, get_task_loaders
 from heads import get_head, count_trainable_params
 from ewc import EWC
 from metrics import CLMetrics
@@ -248,8 +248,8 @@ def train_and_evaluate(
     )
     if ds_name == "split_cifar10":
         dataset = SplitCIFAR10(**common_ds_kwargs)
-    elif ds_name == "split_cifar100":
-        dataset = SplitCIFAR100(**common_ds_kwargs)
+    elif ds_name == "split_mnist":
+        dataset = SplitMNIST(**common_ds_kwargs)
     else:
         raise ValueError(f"Unknown dataset: {ds_name}")
 
