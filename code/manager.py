@@ -537,7 +537,7 @@ def main():
         print()
         slurm_ok = sbatch_available()
         slurm_tag = "" if slurm_ok else "  [requires Hercules]"
-        print("  [P] Pre-download datasets (CIFAR-10 + CIFAR-100)")
+        print("  [P] Pre-download datasets (MNIST + CIFAR-10)")
         print("  [R] Refresh command files from config.yaml")
         print("  [D] Deploy code to Hercules (rsync + SSH instructions)")
         print("  ─────────────────────────────────────────")
