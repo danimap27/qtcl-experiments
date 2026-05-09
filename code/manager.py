@@ -55,7 +55,7 @@ COMMAND_FILES = {
     "4": (_cmd_path("cmds_4_studies.txt"),   "Phase 4: Studies (Ablation, Lambda, Scalability, Noise)"),
     "A": (_cmd_path("cmds_ablation.txt"),    "Ablation Only (qubits × depth × 2 seeds)"),
     "B": (_cmd_path("cmds_research.txt"),    "Research Combined (Ablation + CL methods + Arch variants)"),
-    "L": (_cmd_path("cmds_cl_methods.txt"),  "CL methods comparison (naive/L2/EWC/SI/MAS/replay)"),
+    "L": (_cmd_path("cmds_cl_methods.txt"),  "CL methods comparison (naive/L2/EWC/SI/DER++/replay)"),
     "V": (_cmd_path("cmds_arch_variants.txt"), "Architecture variants (classical + quantum ansatze)"),
 }
 
@@ -834,7 +834,7 @@ def main():
         print(f"  [4] Submit Phase 4: Studies            (Ablation / Lambda / Scalability / Noise){slurm_tag}")
         print(f"  [F] Submit FULL PIPELINE (1 → 2 → 3 → 4 with SLURM deps){slurm_tag}")
         print(f"  [A] Submit ABLATION ONLY (qubits × depth){slurm_tag}")
-        print(f"  [L] Submit CL METHODS comparison (naive/L2/EWC/SI/MAS/replay){slurm_tag}")
+        print(f"  [L] Submit CL METHODS comparison (naive/L2/EWC/SI/DER++/replay){slurm_tag}")
         print(f"  [V] Submit ARCH VARIANTS (classical + quantum ansatze){slurm_tag}")
         print(f"  [B] Submit RESEARCH BUNDLE (ablation + CL methods + arch){slurm_tag}")
         print("  ─────────────────────────────────────────")

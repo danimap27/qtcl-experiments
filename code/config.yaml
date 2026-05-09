@@ -161,7 +161,7 @@ ewc:
   fisher_samples: 200
   buffer_size: 200          # for replay method
 
-# Default CL method ('naive' | 'l2' | 'ewc' | 'si' | 'mas' | 'replay')
+# Default CL method ('naive' | 'l2' | 'ewc' | 'si' | 'derpp' | 'replay')
 cl_method: "ewc"
 
 # =============================================================
@@ -219,7 +219,7 @@ cl_methods_study:
   datasets: ["split_mnist"]
   backbones: ["resnet18"]
   heads: ["mlp", "qk_ideal"]
-  methods: ["naive", "l2", "ewc", "si", "mas", "replay"]
+  methods: ["naive", "l2", "ewc", "si", "derpp", "replay"]
   seeds: [0, 42, 123, 456, 789]
 
 # --- Architecture variants: classical and quantum ansatz comparison ---

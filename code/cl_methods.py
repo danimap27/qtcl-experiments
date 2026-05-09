@@ -6,8 +6,8 @@ Unified interface so the trainer can swap methods via config:
     l2      — L2 distance to last anchor
     ewc     — Elastic Weight Consolidation (Fisher-weighted)
     si      — Synaptic Intelligence (Zenke et al., 2017)
-    mas     — Memory Aware Synapses (Aljundi et al., 2018)
-    replay  — Experience Replay (random buffer)
+    derpp   — Dark Experience Replay++ (Buzzega et al., 2020)
+    replay  — vanilla Experience Replay (random buffer, labels only)
 
 Every regulariser exposes:
     .penalty(model)            -> scalar tensor (loss term to add)
@@ -215,60 +215,78 @@ class SICL(BaseCLMethod):
         return self._n_tasks
 
 
-# ── MAS (Memory Aware Synapses) ───────────────────────────────────────────────
+# ── DER++ (Dark Experience Replay++) ──────────────────────────────────────────
 
-class MASCL(BaseCLMethod):
+class DERPPCL(BaseCLMethod):
     """
-    Memory Aware Synapses (Aljundi et al. 2018).
-    Importance = average squared L2 norm of the gradient of model output
-    sensitivity. Computed unsupervised (no labels needed for importance).
-    """
-    name = "mas"
+    Dark Experience Replay++ (Buzzega et al., NeurIPS 2020).
 
-    def __init__(self, lam: float = 1.0):
+    Reservoir buffer stores (x, y, logits) tuples.
+    Total loss per step:
+        L_task + alpha * MSE(f(x_replay), z_replay) + beta * CE(f(x'_replay), y'_replay)
+
+    The MSE term ("dark experience") matches stored logits, providing a soft
+    distillation signal across tasks. The CE term provides the hard-label
+    consistency. Two independent replay batches are sampled.
+
+    The trainer must call store_with_logits(x, y, logits) during training and
+    use replay_batches() each step.
+    """
+    name = "derpp"
+
+    def __init__(self, lam: float = 1.0, buffer_size: int = 200,
+                 alpha: float = 0.5, beta: float = 0.5):
         super().__init__(lam)
-        self._omega: Dict[str, torch.Tensor]  = {}
-        self._anchor: Dict[str, torch.Tensor] = {}
+        self.buffer_size = buffer_size
+        self.alpha = alpha
+        self.beta  = beta
+        self._x:      List[torch.Tensor] = []
+        self._y:      List[torch.Tensor] = []
+        self._logits: List[torch.Tensor] = []
+        self._seen = 0
         self._n_tasks = 0
+
+    def store_with_logits(self, x: torch.Tensor, y: torch.Tensor,
+                          logits: torch.Tensor) -> None:
+        for i in range(x.size(0)):
+            if len(self._x) < self.buffer_size:
+                self._x.append(x[i].detach().cpu())
+                self._y.append(y[i].detach().cpu())
+                self._logits.append(logits[i].detach().cpu())
+            else:
+                idx = random.randint(0, self._seen)
+                if idx < self.buffer_size:
+                    self._x[idx]      = x[i].detach().cpu()
+                    self._y[idx]      = y[i].detach().cpu()
+                    self._logits[idx] = logits[i].detach().cpu()
+            self._seen += 1
 
     def update(self, model: nn.Module, loader: DataLoader, device: torch.device,
                n_samples: int = 200) -> None:
+        # Snapshot end-of-task logits with current model
         model.eval()
-        omega = {n: torch.zeros_like(p) for n, p in model.named_parameters() if p.requires_grad}
         count = 0
-        for x, _ in loader:
-            if count >= n_samples:
-                break
-            x = x.to(device)
-            model.zero_grad()
-            out = model(x)
-            # MAS sensitivity: || f(x) ||^2
-            sensitivity = out.pow(2).sum()
-            sensitivity.backward()
-            for n, p in model.named_parameters():
-                if p.requires_grad and p.grad is not None:
-                    omega[n] += p.grad.detach().abs() * x.size(0)
-            count += x.size(0)
-        count = max(count, 1)
-        for n in omega:
-            omega[n] /= count
-            if n in self._omega:
-                self._omega[n] += omega[n]
-            else:
-                self._omega[n] = omega[n]
-        self._anchor = {n: p.detach().clone() for n, p in model.named_parameters() if p.requires_grad}
+        with torch.no_grad():
+            for x, y in loader:
+                if count >= n_samples:
+                    break
+                logits = model(x.to(device)).cpu()
+                self.store_with_logits(x, y, logits)
+                count += x.size(0)
         self._n_tasks += 1
 
-    def penalty(self, model: nn.Module) -> torch.Tensor:
-        if not self._omega:
-            return torch.tensor(0.0)
-        loss = torch.tensor(0.0)
-        for n, p in model.named_parameters():
-            if n in self._omega:
-                w = self._omega[n].to(p.device)
-                a = self._anchor[n].to(p.device)
-                loss = loss + (w * (p - a).pow(2)).sum()
-        return (self.lam / 2.0) * loss
+    def replay_batches(self, batch_size: int):
+        """Return two independent replay batches (or (None, None) if empty)."""
+        if not self._x:
+            return None, None
+        n = min(batch_size, len(self._x))
+        idx_a = random.sample(range(len(self._x)), n)
+        idx_b = random.sample(range(len(self._x)), n)
+        xa = torch.stack([self._x[i]      for i in idx_a])
+        za = torch.stack([self._logits[i] for i in idx_a])
+        xb = torch.stack([self._x[i]      for i in idx_b])
+        yb = torch.stack([self._y[i]      for i in idx_b])
+        return (xa, za), (xb, yb)
 
     def n_tasks_seen(self) -> int:
         return self._n_tasks
@@ -338,8 +356,13 @@ def get_cl_method(name: str, lam: float = 5000.0, **kwargs) -> BaseCLMethod:
         return EWCCL(lam=lam)
     if name == "si":
         return SICL(lam=lam, epsilon=kwargs.get("epsilon", 1e-3))
-    if name == "mas":
-        return MASCL(lam=lam)
+    if name == "derpp":
+        return DERPPCL(
+            lam=lam,
+            buffer_size=kwargs.get("buffer_size", 200),
+            alpha=kwargs.get("alpha", 0.5),
+            beta=kwargs.get("beta", 0.5),
+        )
     if name == "replay":
         return ReplayCL(lam=lam, buffer_size=kwargs.get("buffer_size", 200))
     raise ValueError(f"Unknown cl_method: {name}")

@@ -17,7 +17,7 @@ import torchvision.models as models
 
 from data import SplitCIFAR10, SplitMNIST, get_task_loaders
 from heads import get_head, count_trainable_params
-from cl_methods import get_cl_method, ReplayCL
+from cl_methods import get_cl_method, ReplayCL, DERPPCL
 from metrics import CLMetrics, supervised_metrics
 
 try:
@@ -182,7 +182,7 @@ def train_task(
             logits = model(x)
             loss = criterion(logits, y)
 
-            # Replay augments the loss with previous-task samples
+            # Vanilla replay: hard-label CE on replayed batch
             if isinstance(cl_method, ReplayCL):
                 replay = cl_method.replay_batch(x.size(0))
                 if replay is not None:
@@ -190,7 +190,19 @@ def train_task(
                     rx, ry = rx.to(device), ry.to(device)
                     loss = loss + cl_method.lam * criterion(model(rx), ry)
 
-            # Regularisation penalty (EWC, L2, SI, MAS, …)
+            # DER++: MSE on stored logits + CE on stored labels (two independent batches)
+            elif isinstance(cl_method, DERPPCL) and cl_method.n_tasks_seen() > 0:
+                ba, bb = cl_method.replay_batches(x.size(0))
+                if ba is not None:
+                    xa, za = ba
+                    xa, za = xa.to(device), za.to(device)
+                    loss = loss + cl_method.alpha * nn.functional.mse_loss(model(xa), za)
+                if bb is not None:
+                    xb, yb = bb
+                    xb, yb = xb.to(device), yb.to(device)
+                    loss = loss + cl_method.beta * criterion(model(xb), yb)
+
+            # Regularisation penalty (EWC, L2, SI)
             if cl_method.n_tasks_seen() > 0:
                 loss = loss + cl_method.penalty(model)
 
