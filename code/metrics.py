@@ -73,14 +73,14 @@ class CLMetrics:
         """
         FWT = mean over tasks 2..T of (A[t-1][t] - random_baseline).
         Random baseline for binary tasks is 0.5.
+        Requires zero-shot evaluation of future tasks (A[t-1][t] != 0 sentinel).
         """
         if len(self.A) < 2:
             return 0.0
         random_baseline = 0.5
         fwt = []
         for t in range(1, len(self.A)):
-            # Accuracy on task t before having trained it (i.e. after task t-1)
-            if t < self.n_tasks:
+            if t < self.n_tasks and self.A[t - 1][t] > 0:
                 fwt.append(self.A[t - 1][t] - random_baseline)
         return float(np.mean(fwt)) if fwt else 0.0
 

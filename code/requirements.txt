@@ -6,6 +6,7 @@ qiskit-machine-learning>=0.8.0
 qiskit-aer>=0.15.0
 numpy>=1.26.0
 scikit-learn>=1.4.0
+scipy>=1.11.0
 pandas>=2.2.0
 pyyaml>=6.0
 tqdm>=4.66.0

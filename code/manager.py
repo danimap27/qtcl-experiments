@@ -638,6 +638,22 @@ def download_datasets_action():
     input("\nEnter to return...")
 
 
+def cancel_all_jobs():
+    """Cancel all SLURM jobs of the current user."""
+    if not sbatch_available():
+        print("\n[WARN] sbatch not available locally.")
+        input("\nEnter to return...")
+        return
+    confirm = input("\n  Cancel ALL your SLURM jobs? [y/N]: ").strip().lower()
+    if confirm != "y":
+        print("  Cancelled.")
+        input("\nEnter to return...")
+        return
+    run_command("scancel -u $USER")
+    run_command("squeue -u $USER")
+    input("\nEnter to return...")
+
+
 def deploy_to_hercules():
     """Rsync code to Hercules and print the command to run there."""
     print("\n[DEPLOY] Syncing code to Hercules...")
@@ -770,6 +786,7 @@ def main():
         print("  [T] Generate LaTeX tables (basic)")
         print("  [U] Generate paper SUMMARY (full tables + figures)")
         print("  ─────────────────────────────────────────")
+        print(f"  [K] Cancel ALL SLURM jobs (scancel -u $USER){slurm_tag}")
         print("  [X] Exit")
         print("-" * 70)
 
@@ -817,6 +834,9 @@ def main():
             mode = check_completed(phase_key="A")
             if mode is not None:
                 submit_ablation_only(overwrite=(mode == "overwrite_all"))
+
+        elif choice == "K":
+            cancel_all_jobs()
 
         elif choice == "X":
             print("\nExiting. Good luck with the submission!\n")

@@ -98,16 +98,13 @@ class SplitCIFAR10:
         self._pool_test_eval_tf  = datasets.CIFAR10(root, train=False, download=False, transform=eval_tf)
 
     def _build_indices(self, task_id: int):
-        """
-        Return (train_idx, val_idx, test_idx, base_for_train, base_for_eval, base_for_test_train, base_for_test_eval).
-        Indices are in the union of CIFAR-10 train and test (we keep them as separate bases).
-        """
         ca, cb = self.class_pairs[task_id]
 
-        # Find all samples of the two classes in the pool (train split only,
-        # since CIFAR-10 has 6000 per class in train and 1000 per class in test).
-        train_pool = [(i, "train") for i, (_, y) in enumerate(self._pool_train_tf) if y in (ca, cb)]
-        test_pool  = [(i, "test")  for i, (_, y) in enumerate(self._pool_test_train_tf) if y in (ca, cb)]
+        # Use .targets directly (avoids loading and transforming every image)
+        train_targets = np.asarray(self._pool_train_tf.targets)
+        test_targets  = np.asarray(self._pool_test_train_tf.targets)
+        train_pool = [(int(i), "train") for i in np.where(np.isin(train_targets, [ca, cb]))[0]]
+        test_pool  = [(int(i), "test")  for i in np.where(np.isin(test_targets,  [ca, cb]))[0]]
         all_idx = train_pool + test_pool
 
         rng = np.random.default_rng(self.seed + task_id)

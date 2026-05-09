@@ -367,25 +367,35 @@ def train_and_evaluate(
         # Update EWC with Fisher for this task
         ewc.update(model, train_loader, device, n_samples=ewc_cfg["fisher_samples"])
 
-        # Evaluate on all tasks seen so far (use the held-out test split)
+        # Evaluate ALL tasks seen-so-far + future ones (zero-shot for FWT).
+        # Future tasks need their loaders built lazily.
         acc_row = []
         for j in range(n_tasks):
-            if j <= task_id:
-                acc, y_true, y_pred, y_score = evaluate_full(model, test_loaders[j], device)
-                # Save per-task supervised metrics + plots only for the last evaluation step
-                if j == task_id and HAS_VIZ:
-                    sm = supervised_metrics(y_true, y_pred, y_score)
-                    sm.update({"task_id": task_id, "after_task": task_id})
-                    per_task_metrics.append(sm)
-                    try:
-                        viz.plot_confusion_matrix(y_true, y_pred, plots_dir, run_id, task_id)
-                        viz.plot_roc(y_true, y_score, plots_dir, run_id, task_id)
-                        viz.plot_pr(y_true, y_score, plots_dir, run_id, task_id)
-                        viz.plot_probability_histogram(y_true, y_score, plots_dir, run_id, task_id)
-                    except Exception as e:
-                        logger.warning(f"[{run_id}] Plot failed for task {task_id+1}: {e}")
-            else:
-                acc = 0.0
+            if j > task_id and j >= len(test_loaders):
+                # Build the loader for a future task (only first time)
+                _, _, future_test = get_task_loaders(
+                    dataset, j, batch_size=train_cfg["batch_size"], num_workers=2
+                )
+                while len(test_loaders) <= j:
+                    test_loaders.append(None)
+                    val_loaders.append(None)
+                test_loaders[j] = future_test
+
+            acc, y_true, y_pred, y_score = evaluate_full(model, test_loaders[j], device)
+
+            # Save per-task supervised metrics + plots only for the current task
+            if j == task_id and HAS_VIZ:
+                sm = supervised_metrics(y_true, y_pred, y_score)
+                sm.update({"task_id": task_id, "after_task": task_id})
+                per_task_metrics.append(sm)
+                try:
+                    viz.plot_confusion_matrix(y_true, y_pred, plots_dir, run_id, task_id)
+                    viz.plot_roc(y_true, y_score, plots_dir, run_id, task_id)
+                    viz.plot_pr(y_true, y_score, plots_dir, run_id, task_id)
+                    viz.plot_probability_histogram(y_true, y_score, plots_dir, run_id, task_id)
+                except Exception as e:
+                    logger.warning(f"[{run_id}] Plot failed for task {task_id+1}: {e}")
+
             acc_row.append(acc)
         cl.record(acc_row)
         logger.info(f"[{run_id}] Task {task_id+1} test eval: {[f'{a*100:.1f}' for a in acc_row]}")
