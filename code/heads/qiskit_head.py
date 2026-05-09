@@ -108,7 +108,8 @@ def _build_noise_model(noise_params: Dict[str, float], noise_channels: Optional[
 
     if "amplitude_damping" in noise_channels or "phase_damping" in noise_channels:
         e1 = thermal_relaxation_error(T1, T2, t1q)
-        e2 = thermal_relaxation_error(T1, T2, t2q).expand(2)
+        e2_single = thermal_relaxation_error(T1, T2, t2q)
+        e2 = e2_single.tensor(e2_single)
         nm.add_all_qubit_quantum_error(e1, ["u1", "u2", "u3", "rx", "ry", "rz", "h", "x"])
         nm.add_all_qubit_quantum_error(e2, ["cx"])
     if "depolarizing" in noise_channels:
@@ -127,18 +128,17 @@ def _make_estimator(noise: bool, noise_params: Optional[Dict], noise_channels: O
         from qiskit.primitives import StatevectorEstimator
         return StatevectorEstimator()
 
-    # Noisy: AerSimulator + EstimatorV2
-    from qiskit_aer import AerSimulator
+    # Noisy: Aer's native EstimatorV2 with noise_model in backend_options.
+    from qiskit_aer.primitives import EstimatorV2 as AerEstimatorV2
     nm = _build_noise_model(noise_params or {}, noise_channels)
-    backend = AerSimulator(noise_model=nm)
-
-    # Try Aer's V2 estimator first; fallback to BackendEstimatorV2.
-    try:
-        from qiskit_aer.primitives import EstimatorV2 as AerEstimatorV2
-        return AerEstimatorV2.from_backend(backend, options={"default_shots": shots or 1024})
-    except Exception:
-        from qiskit.primitives import BackendEstimatorV2
-        return BackendEstimatorV2(backend=backend, options={"default_shots": shots or 1024})
+    s = shots or 1024
+    return AerEstimatorV2(
+        options={
+            "default_precision": 1.0 / (s ** 0.5),
+            "backend_options": {"noise_model": nm},
+            "run_options": {"shots": s},
+        }
+    )
 
 
 class QiskitHead(nn.Module):
