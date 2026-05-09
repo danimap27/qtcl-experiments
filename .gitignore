@@ -18,8 +18,11 @@ __pycache__/
 data/datasets/
 **/data/datasets/
 
-# Generated commands
+# Generated commands and smoke artefacts
 cmds_*.txt
+config_smoke.yaml
+results_smoke/
+**/results_smoke/
 
 # LaTeX build artifacts
 paper/main.aux

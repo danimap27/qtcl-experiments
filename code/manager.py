@@ -461,6 +461,169 @@ def show_monitoring():
     print()
 
 
+def smoke_test():
+    """
+    Quick functional test: run 1 micro-experiment per (backbone × head × dataset)
+    combination with reduced epochs/samples to catch errors fast.
+
+    Generates ~18 runs (2 datasets × 3 backbones × 3 heads × 1 seed) with:
+        - 2 epochs per task instead of 10
+        - Only 2 tasks instead of 5
+        - 5% subset instead of 20%
+    Total wall-clock target: ~5-10 minutes on CPU.
+    """
+    print("\n[SMOKE TEST] Running quick functional check across all combinations...")
+    print("  Configurations covered:")
+    print("    - Datasets:  split_mnist, split_cifar10")
+    print("    - Backbones: resnet18, mobilenetv2, efficientnet_b0")
+    print("    - Heads:     mlp, qk_ideal, qk_noisy")
+    print("    - Reduced:   2 tasks, 2 epochs, 5% subset, 1 seed")
+    print()
+
+    confirm = input("  Run smoke test now? [y/N]: ").strip().lower()
+    if confirm != "y":
+        print("  Cancelled.")
+        input("\nEnter to return...")
+        return
+
+    smoke_config_path = os.path.join(CODE_DIR, "config_smoke.yaml")
+    _write_smoke_config(smoke_config_path)
+
+    smoke_results = os.path.join(CODE_DIR, "results_smoke")
+    os.makedirs(smoke_results, exist_ok=True)
+
+    failed = []
+    passed = []
+
+    datasets    = ["split_mnist", "split_cifar10"]
+    backbones   = ["resnet18", "mobilenetv2", "efficientnet_b0"]
+    heads_list  = ["mlp", "qk_ideal", "qk_noisy"]
+    seed        = 42
+
+    total = len(datasets) * len(backbones) * len(heads_list)
+    idx = 0
+    for ds in datasets:
+        for bb in backbones:
+            for hd in heads_list:
+                idx += 1
+                tag = f"{ds}/{bb}/{hd}"
+                print(f"\n  [{idx}/{total}] {tag} ...", end=" ", flush=True)
+
+                cmd = (
+                    f'"{PYTHON}" "{RUNNER}" '
+                    f'--config "{smoke_config_path}" '
+                    f'--dataset {ds} --backbone {bb} --head {hd} --seed {seed} '
+                    f'--machine-id smoke --overwrite'
+                )
+                t0 = time.time()
+                ok = run_command(cmd)
+                dt = time.time() - t0
+
+                if ok:
+                    print(f"OK ({dt:.1f}s)")
+                    passed.append(tag)
+                else:
+                    print(f"FAIL ({dt:.1f}s)")
+                    failed.append(tag)
+
+    print()
+    print("=" * 60)
+    print(f"  SMOKE TEST RESULTS: {len(passed)} passed, {len(failed)} failed")
+    print("=" * 60)
+    if failed:
+        print("\n  Failures:")
+        for f in failed:
+            print(f"    [FAIL] {f}")
+        print("\n  Check errors.log in results_smoke/ for details.")
+    else:
+        print("\n  All combinations executed successfully.")
+    input("\nEnter to return...")
+
+
+def _write_smoke_config(path: str) -> None:
+    """Write a reduced config.yaml for smoke testing."""
+    smoke_yaml = """\
+experiment_name: "qtcl_smoke"
+output_dir: "./results_smoke"
+device: "auto"
+
+seeds: [42]
+
+datasets:
+  - name: "split_mnist"
+    root: "./data/datasets"
+    n_tasks: 2
+    image_size: 32
+    subset_fraction: 0.05
+    train_test_split: 0.8
+    train_val_split: 0.8
+
+  - name: "split_cifar10"
+    root: "./data/datasets"
+    n_tasks: 2
+    image_size: 32
+    subset_fraction: 0.05
+    train_test_split: 0.8
+    train_val_split: 0.8
+
+backbones:
+  - name: "resnet18"
+    feature_dim: 512
+    frozen: true
+  - name: "mobilenetv2"
+    feature_dim: 1280
+    frozen: true
+  - name: "efficientnet_b0"
+    feature_dim: 1280
+    frozen: true
+
+heads:
+  - name: "mlp"
+    type: "classical"
+    hidden_dim: 64
+    dropout: 0.3
+  - name: "qk_ideal"
+    type: "qiskit"
+    backend: "statevector"
+    n_qubits: 2
+    depth: 1
+    noise: false
+  - name: "qk_noisy"
+    type: "qiskit"
+    backend: "aer"
+    n_qubits: 2
+    depth: 1
+    noise: true
+    shots: 256
+    gradient_method: "spsa"
+    noise_params:
+      T1_us: 250
+      T2_us: 150
+      t1q_ns: 32
+      t2q_ns: 68
+      p1q: 0.0002
+      p2q: 0.005
+      readout_error: 0.012
+
+ewc:
+  lambda: 1000
+  fisher_samples: 50
+
+training:
+  optimizer: "adam"
+  lr: 0.001
+  batch_size: 32
+  epochs_per_task: 2
+  loss: "cross_entropy"
+  scheduler:
+    type: "step_lr"
+    step_size: 3
+    gamma: 0.9
+"""
+    with open(path, "w") as f:
+        f.write(smoke_yaml)
+
+
 def download_datasets_action():
     """Pre-download MNIST and CIFAR-10 to ./data/datasets/."""
     print("\n[DATASETS] Pre-downloading MNIST and CIFAR-10...")
@@ -538,6 +701,7 @@ def main():
         slurm_ok = sbatch_available()
         slurm_tag = "" if slurm_ok else "  [requires Hercules]"
         print("  [P] Pre-download datasets (MNIST + CIFAR-10)")
+        print("  [Q] Quick smoke test (1 mini-run per dataset×backbone×head)")
         print("  [R] Refresh command files from config.yaml")
         print("  [D] Deploy code to Hercules (rsync + SSH instructions)")
         print("  ─────────────────────────────────────────")
@@ -559,6 +723,9 @@ def main():
 
         if choice == "P":
             download_datasets_action()
+
+        elif choice == "Q":
+            smoke_test()
 
         elif choice == "R":
             refresh_commands()
