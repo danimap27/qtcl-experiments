@@ -1,0 +1,36 @@
+# Logs and results
+logs/
+**/logs/
+results/
+**/results/
+*.out
+*.err
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+*.egg-info/
+
+# Datasets (downloaded, large)
+data/datasets/
+**/data/datasets/
+
+# Generated commands
+cmds_*.txt
+
+# LaTeX build artifacts
+paper/main.aux
+paper/main.bbl
+paper/main.blg
+paper/main.log
+paper/main.out
+paper/main.pdf
+
+# Editor
+.vscode/
+.idea/
+*.swp
+.DS_Store
