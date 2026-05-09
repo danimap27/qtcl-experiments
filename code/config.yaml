@@ -1,0 +1,169 @@
+# =============================================================
+# QTCL — Quantum Transfer-Continual Learning
+# Configuration File
+# =============================================================
+experiment_name: "qtcl_v1"
+output_dir: "./results"
+device: "auto"
+
+# =============================================================
+# RANDOM SEEDS
+# =============================================================
+seeds: [0, 42, 123, 456, 789]
+
+# =============================================================
+# DATASETS
+# =============================================================
+datasets:
+  - name: "split_cifar10"
+    root: "./data/datasets"
+    n_tasks: 5
+    image_size: 32
+    # null = use full training split (~10k images per task)
+    samples_per_task_train: null
+    samples_per_task_val: null
+
+  - name: "split_cifar100"
+    root: "./data/datasets"
+    n_tasks: 10
+    image_size: 32
+    samples_per_task_train: null
+    samples_per_task_val: null
+
+# =============================================================
+# BACKBONES (ImageNet-pretrained, frozen)
+# =============================================================
+backbones:
+  - name: "resnet18"
+    feature_dim: 512
+    frozen: true
+  - name: "mobilenetv2"
+    feature_dim: 1280
+    frozen: true
+  - name: "efficientnet_b0"
+    feature_dim: 1280
+    frozen: true
+
+# =============================================================
+# CLASSIFICATION HEADS
+# =============================================================
+heads:
+  # --- Classical Baseline ---
+  - name: "mlp"
+    type: "classical"
+    description: "Two-layer MLP (128 hidden units, ReLU, Dropout 0.3)"
+    hidden_dim: 128
+    dropout: 0.3
+
+  # --- Qiskit Hybrid Quantum-Classical ---
+  - name: "qk_ideal"
+    type: "qiskit"
+    description: "Qiskit dual-path hybrid (StatevectorEstimator, exact)"
+    backend: "statevector"
+    n_qubits: 4
+    depth: 2
+    noise: false
+
+  - name: "qk_noisy"
+    type: "qiskit"
+    description: "Qiskit dual-path hybrid (AerSimulator, IBM Heron r2 noise model)"
+    backend: "aer"
+    n_qubits: 4
+    depth: 2
+    noise: true
+    shots: 1024
+    gradient_method: "spsa"
+    noise_params:
+      T1_us: 250
+      T2_us: 150
+      t1q_ns: 32
+      t2q_ns: 68
+      p1q: 0.0002
+      p2q: 0.005
+      readout_error: 0.012
+
+# =============================================================
+# EWC HYPERPARAMETERS
+# =============================================================
+ewc:
+  lambda: 5000
+  fisher_samples: 200
+
+# =============================================================
+# TRAINING HYPERPARAMETERS
+# =============================================================
+training:
+  optimizer: "adam"
+  lr: 0.001
+  batch_size: 32
+  epochs_per_task: 10
+  loss: "cross_entropy"
+  scheduler:
+    type: "step_lr"
+    step_size: 3
+    gamma: 0.9
+
+# =============================================================
+# ADDITIONAL STUDIES
+# =============================================================
+
+# --- Ablation: circuit depth and n_qubits ---
+ablation:
+  enabled: true
+  datasets: ["split_cifar10"]
+  backbones: ["resnet18"]
+  heads: ["qk_ideal", "qk_noisy"]
+  qubits: [2, 4, 6, 8]
+  depths: [1, 2, 3, 4]
+  seeds: [42, 123]
+
+# --- EWC Lambda Sensitivity ---
+lambda_sensitivity:
+  enabled: true
+  datasets: ["split_cifar10"]
+  backbones: ["resnet18"]
+  heads: ["mlp", "qk_ideal", "qk_noisy"]
+  lambdas: [0, 100, 500, 1000, 5000, 10000, 50000]
+  seeds: [42]
+
+# --- Scalability: number of sequential tasks ---
+scalability:
+  enabled: true
+  datasets: ["split_cifar10", "split_cifar100"]
+  backbones: ["resnet18"]
+  heads: ["mlp", "qk_ideal", "qk_noisy"]
+  seeds: [42, 123]
+
+# --- Noise Decomposition: impact per channel ---
+noise_decomposition:
+  enabled: true
+  datasets: ["split_cifar10"]
+  backbones: ["resnet18"]
+  base_head: "qk_noisy"
+  channels:
+    - name: "amplitude_damping"
+      noise_channels: ["amplitude_damping"]
+    - name: "phase_damping"
+      noise_channels: ["phase_damping"]
+    - name: "depolarizing"
+      noise_channels: ["depolarizing"]
+  n_qubits: 4
+  depth: 2
+  seeds: [42]
+
+# =============================================================
+# VISUALIZATION
+# =============================================================
+visualization:
+  enabled: true
+  plots_subdir: "plots"
+  dpi: 150
+
+# =============================================================
+# CHECKPOINTS
+# =============================================================
+checkpoints:
+  enabled: true
+  save_best: true
+  save_last: true
+  resume: true

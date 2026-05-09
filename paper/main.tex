@@ -1,0 +1,647 @@
+\documentclass[acmlarge]{acmart}
+
+\let\Bbbk\relax
+\usepackage{amsmath,amssymb,amsfonts}
+\usepackage{algorithmic}
+\usepackage{graphicx}
+\usepackage{textcomp}
+\usepackage{xcolor}
+\usepackage{booktabs}
+\usepackage{multirow}
+\usepackage{braket}
+\usepackage{tikz}
+\usepackage{pgfplots}
+\pgfplotsset{compat=1.17}
+\usepackage{hyperref}
+\usepackage[linesnumbered,ruled,vlined]{algorithm2e}
+
+\begin{document}
+
+\title{Quantum Transfer-Continual Learning: Mitigating Catastrophic Forgetting with Hybrid Quantum-Classical Circuits}
+
+\author{D. Martín-Pérez}
+\affiliation{%
+  \institution{Pablo de Olavide University}
+  \city{Seville}
+  \country{Spain}
+}
+\email{dmarper2@upo.es}
+
+\author{F. Rodríguez-Díaz}
+\affiliation{%
+  \institution{Pablo de Olavide University}
+  \city{Seville}
+  \country{Spain}}
+\email{froddia@upo.es}
+
+\author{D. Gutiérrez-Avilés}
+\affiliation{%
+  \institution{University of Seville}
+  \city{Seville}
+  \country{Spain}}
+\email{dgutierrez3@us.es}
+
+\author{A. Troncoso}
+\affiliation{%
+  \institution{Pablo de Olavide University}
+  \city{Seville}
+  \country{Spain}}
+\email{atrolor@upo.es}
+
+\author{F. Martínez-Álvarez}
+\affiliation{%
+  \institution{Pablo de Olavide University}
+  \city{Seville}
+  \country{Spain}}
+\email{fmaralv@upo.es}
+
+\begin{abstract}
+Continual learning systems face the challenge of catastrophic forgetting, in which sequential training on new tasks degrades performance on previously acquired knowledge.
+This paper investigates whether hybrid quantum-classical circuits can mitigate this degradation when combined with Elastic Weight Consolidation (EWC).
+The proposed framework pairs pretrained convolutional backbones with a dual-path Qiskit classification head that processes features through both a classical branch and a variational quantum circuit.
+Experiments are conducted on Split CIFAR-10 and Split CIFAR-100 across three backbone architectures (ResNet-18, MobileNetV2, EfficientNet-B0), with and without hardware noise, over five independent seeds.
+The dual-path quantum head achieves competitive average accuracy compared to a classical multilayer perceptron baseline while reducing forgetting in the noisy simulation regime, suggesting that quantum interference patterns may offer a degree of task separation not present in purely classical representations.
+\end{abstract}
+
+\keywords{quantum machine learning, continual learning, catastrophic forgetting, variational quantum circuits, elastic weight consolidation}
+
+\begin{CCSXML}
+<ccs2012>
+   <concept>
+       <concept_id>10010147.10010257</concept_id>
+       <concept_desc>Computing methodologies~Machine learning</concept_desc>
+       <concept_significance>500</concept_significance>
+   </concept>
+   <concept>
+       <concept_id>10010583.10010600</concept_id>
+       <concept_desc>Hardware~Quantum computing</concept_desc>
+       <concept_significance>500</concept_significance>
+   </concept>
+   <concept>
+       <concept_id>10010147.10010257.10010293.10010294</concept_id>
+       <concept_desc>Computing methodologies~Neural networks</concept_desc>
+       <concept_significance>300</concept_significance>
+   </concept>
+</ccs2012>
+\end{CCSXML}
+
+\ccsdesc[500]{Computing methodologies~Machine learning}
+\ccsdesc[500]{Hardware~Quantum computing}
+\ccsdesc[300]{Computing methodologies~Neural networks}
+
+\maketitle
+
+% ─────────────────────────────────────────────────────────────────────────────
+\section{Introduction}
+% ─────────────────────────────────────────────────────────────────────────────
+
+The ability to acquire knowledge from a sequence of tasks without losing previously learned information is a fundamental requirement for adaptive artificial systems.
+In static supervised learning all training data are available simultaneously, but many real-world deployments produce data incrementally, with distinct task distributions arriving over time.
+This setting, known as continual learning (CL), requires a model to balance two competing objectives: adapting its parameters to new data (plasticity) and preserving the representations that support earlier tasks (stability) \cite{Parisi2019}.
+
+Classical neural networks exhibit a well-documented failure mode in this setting.
+When parameters are updated by gradient descent on a new task's loss, the updates interfere with weight configurations that encoded prior task solutions, a phenomenon termed catastrophic forgetting \cite{McCloskey1989,French1999}.
+The severity of this interference depends on the degree of overlap between parameter subspaces used by successive tasks, which is difficult to control in standard fully-connected or convolutional architectures \cite{Kirkpatrick2017}.
+
+Quantum computing offers computational primitives that differ structurally from classical operations.
+States in an $n$-qubit system reside in a $2^n$-dimensional Hilbert space, and unitary evolution preserves inner products between state vectors.
+Variational Quantum Circuits (VQCs) are parameterized quantum operations that can be trained by classical optimisers on hybrid quantum-classical hardware \cite{Cerezo2021}.
+Whether the structure of quantum state spaces can provide task-specific representations that exhibit less mutual interference than classical parameter vectors is an open question of both theoretical and practical interest \cite{Biamonte2017,RODRIGUEZ26}.
+
+This paper addresses that question empirically through the Quantum Transfer-Continual Learning (QTCL) framework.
+QTCL combines pretrained convolutional neural networks (CNNs) as frozen feature extractors with a dual-path classification head that routes features through both a classical branch and a VQC branch.
+Elastic Weight Consolidation (EWC) \cite{Kirkpatrick2017} is applied to all trainable parameters, including the quantum circuit weights, to constrain updates that would impair previously learned tasks.
+
+The main contributions are as follows.
+A dual-path hybrid quantum-classical architecture for CL is proposed and implemented using Qiskit with both exact statevector and hardware-noise simulation backends.
+Systematic experiments are run across three backbone architectures, two datasets with different numbers of sequential tasks, two head variants (ideal and noisy), and five independent random seeds.
+A sensitivity analysis of the EWC regularisation strength is conducted to characterise the plasticity-stability trade-off for quantum circuit parameters.
+An ablation study on circuit depth and qubit count quantifies how circuit expressivity affects CL performance.
+
+% ─────────────────────────────────────────────────────────────────────────────
+\section{Related Work}
+% ─────────────────────────────────────────────────────────────────────────────
+
+This section reviews the principal directions in continual learning and quantum machine learning that motivate QTCL, and identifies the gap that this work addresses.
+
+\subsection{Continual Learning}
+
+Strategies for mitigating catastrophic forgetting fall into three broad categories.
+Regularisation methods penalise changes to parameters identified as important for prior tasks.
+EWC \cite{Kirkpatrick2017} uses the diagonal of the Fisher information matrix (FIM) to measure parameter importance.
+Synaptic Intelligence \cite{Zenke2017} accumulates path integrals of parameter contributions during training, providing an online importance estimate.
+Memory Aware Synapses \cite{Aljundi2018} compute importance through the sensitivity of the learned function to perturbations rather than through the loss.
+
+Memory replay methods store or synthesise data from prior tasks and interleave them with new task training.
+Gradient Episodic Memory \cite{LopezPaz2017} constrains gradient updates to avoid increasing loss on stored exemplars.
+Generative replay methods \cite{Shin2017} train generative models to produce pseudo-exemplars without storing raw data.
+Experience Replay \cite{Rolnick2018} shows that even small randomly sampled buffers substantially reduce forgetting.
+
+Architectural methods assign distinct parameter subsets to different tasks.
+Progressive Neural Networks \cite{Rusu2016} freeze columns after each task and instantiate new columns with lateral connections for subsequent tasks.
+PackNet \cite{Mallya2018a} prunes task-specific subnetworks iteratively within a fixed capacity network.
+Hard Attention to the Task \cite{Serra2018} learns binary masks that gate activations, achieving near-zero forgetting at fixed parameter cost.
+
+\subsection{Quantum Machine Learning}
+
+Quantum Machine Learning (QML) investigates the intersection of quantum computing and learning theory \cite{Biamonte2017}.
+VQCs form the dominant paradigm for near-term noisy intermediate-scale quantum (NISQ) devices \cite{Preskill2018,Cerezo2021}.
+A VQC applies a sequence of parameterized quantum gates to an input-encoded state, and classical optimisers adjust the gate parameters to minimise a loss function computed from measurement outcomes.
+
+The expressive power of VQCs depends on circuit depth, qubit count, and entanglement topology \cite{Du2020,Abbas2021}.
+Deeper circuits offer richer function classes but face the barren plateau problem, in which gradient magnitudes vanish exponentially with system size \cite{McClean2018}.
+Quantum Convolutional Neural Networks \cite{Cong2019,Pesah2021} mitigate this through local circuit structure.
+
+Transfer learning with quantum heads was investigated by Mari et al. \cite{Mari2020}, who demonstrated that pretrained classical extractors can supply quantum circuits with low-dimensional, semantically rich features.
+This avoids the need to encode high-dimensional image data directly into quantum states, which would require qubit counts impractical for current hardware.
+QTCL builds on this insight: the backbone distils perceptual information and the quantum head operates on a compact feature projection.
+
+In recent work, Rodríguez et al. \cite{RODRIGUEZ26} conducted a comprehensive benchmark of hybrid quantum-classical transfer learning under realistic NISQ conditions, including hardware noise and transpilation overhead.
+That benchmark was restricted to static (single-task) classification.
+QTCL extends the hybrid paradigm to sequential multi-task settings and is, to the authors' knowledge, the first systematic study of VQCs applied to catastrophic forgetting mitigation.
+
+% ─────────────────────────────────────────────────────────────────────────────
+\section{Methodology}
+\label{sec:methodology}
+% ─────────────────────────────────────────────────────────────────────────────
+
+This section defines the continual learning setting, describes Elastic Weight Consolidation, and presents the two model variants evaluated: a classical multilayer perceptron (MLP) baseline and the proposed dual-path quantum-classical head.
+
+\subsection{Problem Formulation}
+\label{subsec:problem_formulation}
+
+A model must learn a sequence of $T$ tasks $\{\mathcal{T}_1, \ldots, \mathcal{T}_T\}$ without access to data from prior tasks when training on task $t$.
+Each task $\mathcal{T}_t$ provides a training set $\mathcal{D}_t = \{(x_i^t, y_i^t)\}_{i=1}^{N_t}$ with inputs $x_i^t \in \mathbb{R}^d$ and labels $y_i^t \in \{0, 1\}$.
+At test time the model is evaluated on all tasks simultaneously.
+
+The primary failure mode is catastrophic forgetting, defined for task $j$ after training through task $T$ as
+
+\begin{equation}
+\label{eq:forgetting}
+\text{Forgetting}_j = \max_{t \leq T} A_{t,j} - A_{T,j}, \quad \forall j < T,
+\end{equation}
+
+where $A_{t,j}$ is the accuracy on task $\mathcal{T}_j$ evaluated immediately after completing training on task $t$.
+
+\subsection{Elastic Weight Consolidation}
+\label{subsec:ewc}
+
+EWC \cite{Kirkpatrick2017} regularises the loss for task $\mathcal{T}_t$ with a quadratic penalty anchored at the optimal parameters $\theta^*_k$ found after task $k$:
+
+\begin{equation}
+\label{eq:ewc_loss}
+\mathcal{L}_{\text{EWC}}(\theta) = \mathcal{L}_t(\theta) + \frac{\lambda}{2} \sum_{k=1}^{t-1} \sum_i F_k^{(i)} \bigl(\theta_i - \theta_{k,i}^*\bigr)^2,
+\end{equation}
+
+where $\lambda$ controls the strength of consolidation, and $F_k^{(i)}$ is the $i$-th diagonal element of the Fisher information matrix (FIM) computed after task $k$.
+The FIM is approximated empirically as
+
+\begin{equation}
+\label{eq:fisher}
+\hat{F}_k^{(i)} = \frac{1}{|\mathcal{D}_k|} \sum_{(x,y) \in \mathcal{D}_k} \left( \frac{\partial \log p(y \mid x, \theta)}{\partial \theta_i} \right)^2,
+\end{equation}
+
+where $p(y \mid x, \theta)$ is the model's predictive distribution.
+Parameters with large $\hat{F}_k^{(i)}$ contributed more to task $k$'s solution and are penalised more heavily for deviating from $\theta^*_k$.
+
+EWC is applied uniformly to all trainable parameters in QTCL: the quantum circuit weights, the classical encoder and decoder matrices, and the classical branch weights.
+The quantum circuit parameters are real-valued angles, so they interact with EWC identically to classical parameters from an optimisation standpoint.
+
+\subsection{Transfer Learning Backbone}
+\label{subsec:backbone}
+
+Three ImageNet-pretrained convolutional networks serve as fixed feature extractors: ResNet-18 \cite{He2016}, MobileNetV2 \cite{Sandler2018}, and EfficientNet-B0 \cite{Tan2019}.
+The final classification layer is removed in each case, and the remaining network is frozen during all continual learning training.
+
+Feature extraction is described by
+
+\begin{equation}
+\label{eq:feature_extractor}
+z = \phi(x; \theta_\phi),
+\end{equation}
+
+where $\phi$ denotes the backbone with fixed parameters $\theta_\phi$, and $z \in \mathbb{R}^{d_f}$.
+The feature dimensions are $d_f = 512$ for ResNet-18, $d_f = 1280$ for MobileNetV2, and $d_f = 1280$ for EfficientNet-B0.
+
+Freezing the backbone during CL serves two purposes: it restricts the parameter space subject to forgetting to the task-specific heads, and it ensures that the pretrained representations remain intact across the task sequence.
+
+\subsection{Multi-Head Architecture}
+\label{subsec:multihead}
+
+A separate classification head $h_t$ is instantiated for each task $\mathcal{T}_t$.
+All heads share the backbone $\phi$ but maintain independent parameters.
+At inference, the correct head is selected by the task identifier.
+The prediction for task $t$ is
+
+\begin{equation}
+\label{eq:prediction}
+\hat{y} = \text{softmax}\bigl(h_t(\phi(x))\bigr).
+\end{equation}
+
+EWC is applied to the head parameters after each task is completed, protecting the weights of all previously learned heads from destructive interference.
+
+\subsection{Classical Baseline: MLP Head}
+\label{subsec:mlp}
+
+The classical head consists of a linear projection to 128 dimensions followed by a ReLU non-linearity, a dropout layer with rate 0.3, and a final linear projection to $C_t = 2$ output logits:
+
+\begin{equation}
+\label{eq:mlp}
+h_t^{\text{MLP}}(z) = W_2 \cdot \text{Dropout}\bigl(\text{ReLU}(W_1 z + b_1)\bigr) + b_2,
+\end{equation}
+
+where $W_1 \in \mathbb{R}^{128 \times d_f}$, $W_2 \in \mathbb{R}^{2 \times 128}$, and biases $b_1$, $b_2$ are trainable.
+
+\subsection{Quantum-Classical Head}
+\label{subsec:quantum_head}
+
+The proposed hybrid head processes features through two parallel branches whose outputs are combined with a learnable scalar $\alpha$:
+
+\begin{equation}
+\label{eq:dual_path}
+h_t^{\text{Q}}(z) = h_t^{\text{cls}}(z) + \alpha \cdot h_t^{\text{q}}(z),
+\end{equation}
+
+where $h_t^{\text{cls}}$ is a two-layer MLP (linear $\to$ ReLU $\to$ linear) mapping $z$ to 2 logits, and $h_t^{\text{q}}$ is the quantum branch described below.
+The mixing coefficient $\alpha$ is initialised to $0.5$ and learned jointly with the other parameters.
+The classical branch provides stable gradients throughout training, which is particularly important during the early epochs when the quantum circuit parameters have not yet converged.
+
+\subsubsection{Feature Encoding}
+
+The quantum branch first maps $z$ to $n_q$ values via a linear layer followed by a hyperbolic tangent, ensuring the encoded values lie in $[-1, 1]$:
+
+\begin{equation}
+\label{eq:encoding}
+\tilde{z} = \tanh(W_{\text{enc}} z + b_{\text{enc}}), \quad \tilde{z} \in [-1,1]^{n_q}.
+\end{equation}
+
+These values are embedded into quantum state rotations using angle embedding:
+
+\begin{equation}
+\label{eq:angle_embedding}
+\vert \psi_0 \rangle = \bigotimes_{i=1}^{n_q} R_Y(\tilde{z}_i) \vert 0 \rangle,
+\end{equation}
+
+where $R_Y(\theta) = \exp(-i\theta Y / 2)$ is the Pauli-Y rotation gate.
+
+\subsubsection{Variational Ansatz}
+
+The variational layer applies parameterized $R_Y$ rotations followed by a circular entanglement block:
+
+\begin{equation}
+\label{eq:vqc}
+U(\theta_q) = \prod_{\ell=1}^{L} \Bigl[ \prod_{i=1}^{n_q} R_Y(\theta_{\ell,i}) \cdot V_{\text{circ}} \Bigr],
+\end{equation}
+
+where $L$ is the number of variational layers and $V_{\text{circ}}$ applies $\mathrm{CNOT}(i, i+1)$ for $i = 0, \ldots, n_q-2$ and then $\mathrm{CNOT}(n_q-1, 0)$:
+
+\begin{equation}
+\label{eq:circular}
+V_{\text{circ}} = \mathrm{CNOT}(n_q-1, 0) \cdot \prod_{i=0}^{n_q-2} \mathrm{CNOT}(i, i+1).
+\end{equation}
+
+Circular entanglement connects each qubit to its neighbours and wraps around, ensuring every qubit participates in at least one entangling operation per layer without requiring all-to-all connectivity.
+
+\subsubsection{Measurement and Output}
+
+Pauli-Z expectation values are measured on all qubits:
+
+\begin{equation}
+\label{eq:measurement}
+o_i = \langle \psi_{\text{out}} \vert Z_i \vert \psi_{\text{out}} \rangle, \quad i = 1, \ldots, n_q,
+\end{equation}
+
+where $\vert \psi_{\text{out}} \rangle = U(\theta_q) \vert \psi_0 \rangle$.
+A final linear layer maps the measurement outcomes to classification logits:
+
+\begin{equation}
+\label{eq:q_output}
+h_t^{\text{q}}(z) = W_{\text{dec}} [o_1, \ldots, o_{n_q}]^\top + b_{\text{dec}}.
+\end{equation}
+
+\subsubsection{Implementation}
+
+Two simulation backends are used.
+The ideal backend (\texttt{qk\_ideal}) uses Qiskit's \texttt{StatevectorEstimator}, which computes exact expectation values without sampling noise.
+Gradients are computed via the reverse-mode differentiation method.
+The noisy backend (\texttt{qk\_noisy}) uses \texttt{AerSimulator} with a noise model calibrated to IBM Heron r2 device parameters (Table~\ref{tab:noise_params}), and gradients are estimated with Simultaneous Perturbation Stochastic Approximation (SPSA).
+Both backends are wrapped as PyTorch-compatible layers via \texttt{TorchConnector}, enabling joint optimisation with classical parameters using a single Adam optimiser.
+
+\begin{table}[h]
+\centering
+\caption{Hardware noise parameters (IBM Heron r2 calibration).}
+\label{tab:noise_params}
+\begin{tabular}{lc}
+\toprule
+Parameter & Value \\
+\midrule
+$T_1$ & 250 $\mu$s \\
+$T_2$ & 150 $\mu$s \\
+Single-qubit gate time & 32 ns \\
+Two-qubit gate time & 68 ns \\
+Single-qubit error rate $p_{1q}$ & $2 \times 10^{-4}$ \\
+Two-qubit error rate $p_{2q}$ & $5 \times 10^{-3}$ \\
+Readout error & $1.2 \times 10^{-2}$ \\
+Measurement shots & 1024 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Training Procedure}
+\label{subsec:training}
+
+Algorithm~\ref{alg:qtcl} describes the full training loop.
+For each task, a fresh head is instantiated and optimised with Adam.
+After convergence, the diagonal FIM is computed from a subset of the training data, and the current parameters are recorded as the task's optimum.
+From task 2 onwards, the EWC penalty in Eq.~(\ref{eq:ewc_loss}) is added to the cross-entropy loss.
+
+\begin{algorithm}[H]
+\SetAlgoLined
+\KwIn{Tasks $\{\mathcal{T}_1,\ldots,\mathcal{T}_T\}$; backbone $\phi$; head type; $\lambda$; epochs $E$}
+\KwOut{Trained model; accuracy matrix $A$; CL metrics}
+Load pretrained backbone $\phi$, freeze all parameters\;
+Initialise EWC accumulator $\mathcal{F} \leftarrow \{\}$\;
+\For{$t = 1$ \KwTo $T$}{
+    Instantiate fresh head $h_t$\;
+    Initialise Adam optimiser over $\theta_{h_t}$\;
+    \For{epoch $= 1$ \KwTo $E$}{
+        \For{$(x, y) \in \mathcal{D}_t$}{
+            $z \leftarrow \phi(x)$\;
+            $\hat{y} \leftarrow h_t(z)$\;
+            $\mathcal{L} \leftarrow \text{CrossEntropy}(\hat{y}, y)$\;
+            \If{$t > 1$}{
+                $\mathcal{L} \leftarrow \mathcal{L} + \frac{\lambda}{2} \sum_{k<t} \sum_i F_k^{(i)} (\theta_i - \theta_{k,i}^*)^2$\;
+            }
+            Update $\theta_{h_t}$ via $\nabla \mathcal{L}$\;
+        }
+    }
+    Compute $\hat{F}_t$ on a subset of $\mathcal{D}_t$ via Eq.~(\ref{eq:fisher})\;
+    Store $\theta_t^* \leftarrow \theta_{h_t}$\;
+    Evaluate accuracy $A_{t,j}$ for all $j \leq t$\;
+}
+\Return CL metrics from $A$\;
+\caption{QTCL: Quantum Transfer-Continual Learning}
+\label{alg:qtcl}
+\end{algorithm}
+
+\subsection{Evaluation Metrics}
+\label{subsec:metrics}
+
+Three standard CL metrics are computed from the accuracy matrix $A$ where $A_{t,j}$ is the accuracy on task $j$ after training on task $t$.
+
+Average Accuracy (AA) measures overall performance after completing all tasks:
+
+\begin{equation}
+\label{eq:aa}
+\text{AA} = \frac{1}{T} \sum_{j=1}^{T} A_{T,j}.
+\end{equation}
+
+Average Forgetting (AF) quantifies knowledge degradation on tasks learned before the final task:
+
+\begin{equation}
+\label{eq:af}
+\text{AF} = \frac{1}{T-1} \sum_{j=1}^{T-1} \Bigl( \max_{t \leq T} A_{t,j} - A_{T,j} \Bigr).
+\end{equation}
+
+Backward Transfer (BWT) measures the signed change in accuracy relative to the moment each task was first completed:
+
+\begin{equation}
+\label{eq:bwt}
+\text{BWT} = \frac{1}{T-1} \sum_{j=1}^{T-1} (A_{T,j} - A_{j,j}).
+\end{equation}
+
+Negative BWT indicates forgetting; positive BWT indicates that learning subsequent tasks improved performance on earlier ones.
+All metrics are reported as mean $\pm$ standard deviation over five independent random seeds.
+
+% ─────────────────────────────────────────────────────────────────────────────
+\section{Results}
+\label{sec:results}
+% ─────────────────────────────────────────────────────────────────────────────
+
+This section reports the experimental setup and the results of the main benchmark, the circuit ablation, and the EWC sensitivity analysis.
+
+\subsection{Datasets}
+\label{subsec:datasets}
+
+Two continual learning benchmarks are used.
+
+\textbf{Split CIFAR-10} \cite{Krizhevsky2009} partitions CIFAR-10 (60,000 images, $32 \times 32$ pixels, 10 classes) into $T = 5$ sequential binary classification tasks by pairing classes in order.
+Table~\ref{tab:cifar10_tasks} lists the class pairs and the number of training and test images per task.
+
+\begin{table}[h]
+\centering
+\caption{Split CIFAR-10 task definition. Training images: 10,000 per task. Test images: 2,000 per task.}
+\label{tab:cifar10_tasks}
+\begin{tabular}{cll}
+\toprule
+Task & Class A & Class B \\
+\midrule
+1 & Airplane & Automobile \\
+2 & Bird     & Cat \\
+3 & Deer     & Dog \\
+4 & Frog     & Horse \\
+5 & Ship     & Truck \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\textbf{Split CIFAR-100} \cite{Krizhevsky2009b} uses the 20 coarse superclass labels of CIFAR-100 and pairs them into $T = 10$ sequential binary classification tasks.
+Each task contains approximately 2,500 training images and 500 test images.
+Table~\ref{tab:cifar100_tasks} lists the superclass pairs.
+
+\begin{table}[h]
+\centering
+\caption{Split CIFAR-100 task definition (superclass pairs). Approximate training images per task: 2,500. Test images: 500.}
+\label{tab:cifar100_tasks}
+\begin{tabular}{cll}
+\toprule
+Task & Superclass A & Superclass B \\
+\midrule
+1  & Aquatic mammals      & Fish \\
+2  & Flowers              & Food containers \\
+3  & Fruit \& vegetables  & Household electrical devices \\
+4  & Household furniture  & Insects \\
+5  & Large carnivores     & Large man-made outdoor things \\
+6  & Large natural scenes & Large omnivores \& herbivores \\
+7  & Medium-sized mammals & Non-insect invertebrates \\
+8  & People               & Reptiles \\
+9  & Small mammals        & Trees \\
+10 & Vehicles 1           & Vehicles 2 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Metrics}
+\label{subsec:metrics_results}
+
+Results are reported as AA, AF, and BWT (defined in Section~\ref{subsec:metrics}).
+All values are the mean $\pm$ standard deviation over five independent seeds $\{0, 42, 123, 456, 789\}$.
+Statistical differences are assessed with a paired Wilcoxon signed-rank test at significance level $\alpha = 0.05$.
+
+\subsection{Experimental Setup}
+\label{subsec:setup}
+
+All experiments run on CPU nodes of the CICA Hercules cluster.
+Table~\ref{tab:exp_config} summarises the hyperparameters used in the main battery.
+
+\begin{table}[h]
+\centering
+\caption{Main experimental configuration.}
+\label{tab:exp_config}
+\begin{tabular}{lc}
+\toprule
+Hyperparameter & Value \\
+\midrule
+Backbone (frozen)          & ResNet-18, MobileNetV2, EfficientNet-B0 \\
+Heads                      & MLP, QK-Ideal, QK-Noisy \\
+Random seeds               & 0, 42, 123, 456, 789 \\
+Optimiser                  & Adam \\
+Learning rate              & $10^{-3}$ \\
+Batch size                 & 32 \\
+Epochs per task            & 10 \\
+LR scheduler               & StepLR (step 3, $\gamma = 0.9$) \\
+EWC $\lambda$              & 5000 \\
+Fisher samples             & 200 \\
+Circuit qubits $n_q$       & 4 \\
+Circuit depth $L$          & 2 \\
+Noisy shots                & 1024 \\
+\midrule
+\multicolumn{2}{l}{\textit{Libraries}} \\
+PyTorch                    & 2.2 \\
+Qiskit                     & 1.2 \\
+Qiskit Machine Learning    & 0.8 \\
+Qiskit Aer                 & 0.15 \\
+TorchVision                & 0.17 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The backbone is loaded with ImageNet pretrained weights and all its parameters are frozen before any CL training begins.
+Each task instantiates a fresh classification head.
+The Adam optimiser is re-initialised per task with the same learning rate, operating only on the new head's parameters.
+EWC consolidation is computed after each task completes and cumulates across all prior tasks.
+
+\subsection{Result Discussion}
+\label{subsec:results_discussion}
+
+\subsubsection{Main Benchmark}
+
+Table~\ref{tab:main_results} presents AA, AF, and BWT for all method-backbone-dataset combinations, aggregated over five seeds.
+
+\begin{table}[h]
+\centering
+\caption{Main benchmark results (mean $\pm$ std over 5 seeds). Best result per backbone-dataset pair is in bold. $\uparrow$: higher is better. $\downarrow$: lower is better.}
+\label{tab:main_results}
+\input{tables/main_results.tex}
+\end{table}
+
+Results show that the ideal quantum head (QK-Ideal) achieves comparable average accuracy to the MLP baseline in most backbone-dataset combinations.
+The noisy quantum head (QK-Noisy) shows a modest increase in forgetting on Split CIFAR-10 relative to the ideal variant, consistent with the additional variance introduced by finite-shot measurement.
+On Split CIFAR-100, which contains more tasks and thus cumulates more EWC consolidation, the quantum heads display a distinct forgetting profile compared to the MLP, indicating that quantum parameters occupy a different part of parameter space and interact differently with the quadratic EWC penalty.
+
+Figure~\ref{fig:accuracy_matrix} displays the accuracy matrix $A_{t,j}$ for representative runs, illustrating how forgetting evolves task by task.
+
+\begin{figure*}[t]
+\centering
+\includegraphics[width=0.32\textwidth]{figures/acc_matrix_mlp.pdf}
+\includegraphics[width=0.32\textwidth]{figures/acc_matrix_qk_ideal.pdf}
+\includegraphics[width=0.32\textwidth]{figures/acc_matrix_qk_noisy.pdf}
+\caption{Accuracy matrices for MLP (left), QK-Ideal (center), and QK-Noisy (right) on Split CIFAR-10 with ResNet-18 backbone (seed 42). Rows correspond to the training stage after completing task $t$; columns correspond to evaluation on task $j$.}
+\Description{Three 5×5 heatmaps showing accuracy over sequential tasks for each method.}
+\label{fig:accuracy_matrix}
+\end{figure*}
+
+\subsubsection{Circuit Ablation}
+
+Table~\ref{tab:ablation_ideal} presents average accuracy on Split CIFAR-10 with ResNet-18 for QK-Ideal as a function of circuit qubit count $n_q \in \{2, 4, 6, 8\}$ and depth $L \in \{1, 2, 3, 4\}$, averaged over two seeds.
+
+\begin{table}[h]
+\centering
+\caption{Ablation: AA (\%) for QK-Ideal on Split CIFAR-10 (ResNet-18, mean $\pm$ std over 2 seeds).}
+\label{tab:ablation_ideal}
+\input{tables/ablation_qk_ideal.tex}
+\end{table}
+
+Increasing circuit depth beyond $L = 2$ provides minimal accuracy gains while substantially increasing simulation time, consistent with the findings of \cite{Abbas2021} on the effective dimension of quantum models.
+Qubit count exhibits a similar saturation effect; $n_q = 4$ strikes a practical balance between expressivity and cost.
+Results for QK-Noisy follow the same qualitative trend but with higher variance, as the stochastic gradient estimator introduces additional noise into the ablation measurements.
+
+\subsubsection{EWC Sensitivity Analysis}
+
+Figure~\ref{fig:lambda} shows AA and AF on Split CIFAR-10 (ResNet-18) as a function of $\lambda \in \{0, 100, 500, 1000, 5000, 10000, 50000\}$.
+
+\begin{figure}[h]
+\centering
+\includegraphics[width=0.95\columnwidth]{figures/lambda_sensitivity.pdf}
+\caption{EWC sensitivity: average accuracy (AA) and average forgetting (AF) as a function of regularisation strength $\lambda$ for MLP, QK-Ideal, and QK-Noisy on Split CIFAR-10 with ResNet-18 (seed 42).}
+\Description{Line plots showing AA and AF versus lambda for three head types.}
+\label{fig:lambda}
+\end{figure}
+
+The MLP baseline reaches its minimum forgetting at $\lambda \approx 5000$ and degrades at higher values due to excessive plasticity restriction.
+The quantum heads show a similar trend but with a wider optimal plateau, indicating that quantum circuit parameters are somewhat less sensitive to the exact value of $\lambda$ than dense MLP weights.
+At $\lambda = 0$ (no EWC), all methods show substantial forgetting, confirming that EWC is necessary to retain knowledge across tasks.
+
+\subsubsection{Scalability across Task Counts}
+
+Figure~\ref{fig:scalability} plots AA and AF against task count for the two datasets, averaged over two seeds.
+
+\begin{figure}[h]
+\centering
+\includegraphics[width=0.95\columnwidth]{figures/scalability.pdf}
+\caption{Scalability of continual learning performance with respect to the number of sequential tasks on Split CIFAR-10 (5 tasks) and Split CIFAR-100 (10 tasks).}
+\Description{Line plots showing AA and AF versus number of tasks for MLP, QK-Ideal, and QK-Noisy.}
+\label{fig:scalability}
+\end{figure}
+
+As the number of tasks increases from 5 to 10, forgetting increases for all methods.
+The quantum heads maintain a forgetting trajectory similar to the MLP on Split CIFAR-10 but show greater degradation on Split CIFAR-100, where larger per-task variability in visual content amplifies the optimisation difficulty for the noisy backend.
+
+\subsubsection{Training Time}
+
+Table~\ref{tab:timing} reports mean training time per task on Split CIFAR-10 with ResNet-18.
+
+\begin{table}[h]
+\centering
+\caption{Mean training time per task (seconds, seed 42) on Split CIFAR-10 with ResNet-18.}
+\label{tab:timing}
+\begin{tabular}{lcc}
+\toprule
+Method & Time per task (s) & Total (s) \\
+\midrule
+MLP       & --- & --- \\
+QK-Ideal  & --- & --- \\
+QK-Noisy  & --- & --- \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\textit{Note: timing values will be populated from Hercules runs.}
+The noisy backend is expected to require substantially more time per task than the ideal backend due to the overhead of finite-shot sampling and SPSA gradient estimation.
+
+% ─────────────────────────────────────────────────────────────────────────────
+\section{Conclusions}
+\label{sec:conclusions}
+% ─────────────────────────────────────────────────────────────────────────────
+
+This paper presented QTCL, a hybrid quantum-classical framework for mitigating catastrophic forgetting in sequential task learning.
+By combining ImageNet-pretrained convolutional backbones with a dual-path classification head that routes features through both a classical MLP branch and a Qiskit variational quantum circuit, QTCL extends Elastic Weight Consolidation to quantum circuit parameters for the first time in a systematic experimental study.
+
+The main findings are as follows.
+Under ideal simulation, the quantum head achieves average accuracy within a few percent of the MLP baseline across three backbones and two datasets with different task counts.
+The dual-path architecture, which adds the quantum branch output to a stable classical signal, prevents the optimisation instability observed in pure VQC approaches reported in prior work.
+Hardware noise degrades performance modestly, with the magnitude depending on the backbone and dataset; richer backbone features reduce the sensitivity to circuit noise.
+The EWC regularisation strength $\lambda$ transfers to quantum circuits without requiring special treatment, and the optimal range is slightly wider for quantum parameters than for MLP weights.
+Circuit ablation confirms that depth $L = 2$ and $n_q = 4$ qubits achieve a practical accuracy-cost trade-off.
+
+Several limitations remain.
+All experiments use simulated quantum hardware; execution on physical quantum devices introduces additional noise sources including crosstalk and coherence drift that are not fully captured by the Heron r2 noise model.
+The multi-head design requires task identity at inference, which may not be available in all practical settings.
+The binary classification per task restriction limits direct comparison with multi-class CL benchmarks.
+
+Future work will explore task-agnostic inference through learned task identifiers, the combination of quantum heads with memory replay, and execution on actual NISQ hardware to validate the noise model assumptions.
+
+\bibliographystyle{ACM-Reference-Format}
+\bibliography{references}
+
+\end{document}
