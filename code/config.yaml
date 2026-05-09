@@ -171,7 +171,7 @@ training:
   optimizer: "adam"
   lr: 0.001
   batch_size: 32
-  epochs_per_task: 10
+  epochs_per_task: 5
   loss: "cross_entropy"
   scheduler:
     type: "step_lr"
